@@ -25,15 +25,6 @@ Cirava is a focused Windows desktop client for Google Drive. Uploads and downloa
 |:--|:--|:--|
 | Resumable transfers pick up after a connection drops. | Follow progress, throughput, retries, and transfer status in one place. | Sign in with Google’s desktop OAuth flow; tokens are protected on your device with Windows DPAPI. |
 
-## Home, in motion
-
-The Home screen keeps the two everyday actions close: send files to Drive or bring them back. The orbit gives the workspace a little motion while keeping the upload action at its center.
-
-<div align="center">
-  <img src="docs/images/cirava-home-overview.png" alt="Full Cirava Home page with the upload and download shortcuts and connection status" width="100%">
-  <p><sub>A full-page view of Home. Both screenshots show the Home page only.</sub></p>
-</div>
-
 ## Get Cirava
 
 **[Download Cirava v1.0.0 for Windows](https://github.com/B1progame/Cirava/releases/latest)** from GitHub Releases. The installer is `Cirava-Setup-1.0.0.exe`.
