@@ -48,7 +48,7 @@ The stable release becomes GitHub's latest release, and Cirava's **Stable releas
 
 GitHub Actions generates release notes from the commits and merged pull requests associated with the tag. The release page should read like the example: clear product/version title, a version heading, and short scannable bullets describing user-visible changes. Do not claim fixes that are not in the tagged changes. The installer and manifest appear under **Assets** automatically; do not upload a second copy manually.
 
-If generated notes are empty or too technical, edit the release description on GitHub after the workflow completes. Keep the asset names and manifest unchanged so the updater continues to find and verify the release.
+For the first release, GitHub may have no prior tag to compare and generate only a "Full Changelog" link. In that case, use the checked feature list in `docs/releases/<version>.md` and edit the release description after the workflow completes. Keep the asset names and installer checksum unchanged; if the manifest's release notes are corrected, regenerate and replace only `update-manifest.json`, preserving the installer URL and verified SHA-256.
 
 ## Confirm the release
 
