@@ -60,7 +60,7 @@ npm.cmd run package:desktop
 npm.cmd run package:installer
 ```
 
-More detail: [testing](TESTING.md) · [architecture](ARCHITECTURE.md) · [packaging](packaging/README.md) · [release checklist](RELEASING.md).
+More detail: [testing](TESTING.md) · [architecture](ARCHITECTURE.md) · [packaging](packaging/README.md).
 
 ## Security and scope
 

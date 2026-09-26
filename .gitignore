@@ -40,3 +40,10 @@ startup-video-frames/
 animated-preview.png
 source-preview.png
 preview.png
+
+# Local maintainer notes and project-planning documents
+/RELEASING.md
+/PLAN.md
+/docs/design-project.md
+/docs/features-project.md
+/documentation/edit-plan.md
