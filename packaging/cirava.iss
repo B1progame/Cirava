@@ -1,6 +1,6 @@
 #define AppName "Cirava"
 #ifndef AppVersion
-  #define AppVersion "1.0.0 beta"
+  #define AppVersion "1.0.1"
 #endif
 #ifndef AppExeSource
   #define AppExeSource "output\Cirava.exe"
@@ -9,7 +9,7 @@
   #define AppOutputDir "output"
 #endif
 #ifndef AppOutputBaseFilename
-  #define AppOutputBaseFilename "Cirava-Setup-1.0.0-beta-test"
+  #define AppOutputBaseFilename "Cirava-Setup-1.0.1"
 #endif
 #define AppPublisher "Cirava"
 #define AppExeName "Cirava.exe"
@@ -30,9 +30,9 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern dynamic windows11 includetitlebar
 DisableWelcomePage=no
-WizardImageFile=cirava-installer-panel.png
-WizardSmallImageFile=icon-preview-256.bmp
-WizardImageStretch=no
+WizardImageFile=cirava-installer-panel-minimal.png
+WizardSmallImageFile=
+WizardImageStretch=yes
 WizardImageBackColor=$171B21
 WizardSizePercent=110
 CloseApplications=yes
@@ -73,6 +73,38 @@ ClickFinish=Launch Cirava
 var
   AccentBar: TPanel;
   FooterLine: TPanel;
+  RemoveSavedCredentials: Boolean;
+
+function InitializeUninstall(): Boolean;
+begin
+  Result := True;
+  RemoveSavedCredentials := MsgBox(
+    'Also delete Cirava''s saved Google sign-in credentials?' + #13#10 + #13#10 +
+    'This removes saved access and refresh tokens and the optional OAuth client secret from this Windows account. Transfer history and preferences will be kept.' + #13#10 + #13#10 +
+    'Choose No to keep the credentials on this PC.',
+    mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  CredentialsPath: String;
+  CredentialsRemoved: Boolean;
+begin
+  if (CurUninstallStep = usUninstall) and RemoveSavedCredentials then begin
+    CredentialsPath := ExpandConstant('{userappdata}\Cirava');
+    CredentialsRemoved := True;
+
+    if FileExists(CredentialsPath + '\tokens.bin') then
+      CredentialsRemoved := DeleteFile(CredentialsPath + '\tokens.bin') and CredentialsRemoved;
+    if FileExists(CredentialsPath + '\client-credentials.bin') then
+      CredentialsRemoved := DeleteFile(CredentialsPath + '\client-credentials.bin') and CredentialsRemoved;
+
+    if not CredentialsRemoved then
+      MsgBox(
+        'Cirava could not remove one or more saved credential files. Close Cirava and remove tokens.bin or client-credentials.bin from your roaming AppData\Cirava folder.',
+        mbError, MB_OK);
+  end;
+end;
 
 procedure InitializeWizard;
 begin

@@ -6,7 +6,7 @@
   <p>
     <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/github/v/release/B1progame/Cirava?display_name=tag&style=for-the-badge&color=6079ed&label=STABLE" alt="Latest stable release"></a>
     <img src="https://img.shields.io/badge/platform-Windows-2aa995?style=for-the-badge" alt="Windows desktop app">
-    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/download-v1.0.0-28344d?style=for-the-badge" alt="Download Cirava 1.0.0"></a>
+    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/download-v1.0.1-28344d?style=for-the-badge" alt="Download Cirava 1.0.1"></a>
   </p>
 </div>
 
@@ -27,7 +27,7 @@ Cirava is a focused Windows desktop client for Google Drive. Uploads and downloa
 
 ## Get Cirava
 
-**[Download Cirava v1.0.0 for Windows](https://github.com/B1progame/Cirava/releases/latest)** from GitHub Releases. The installer is `Cirava-Setup-1.0.0.exe`.
+**[Download Cirava v1.0.1 for Windows](https://github.com/B1progame/Cirava/releases/latest)** from GitHub Releases. The installer is `Cirava-Setup-1.0.1.exe`.
 
 Cirava connects with a Google **Desktop OAuth client**. Follow the [Google setup guide](GOOGLE_SETUP.md) to configure the client ID and Drive API access. Cirava never asks for your Google password.
 

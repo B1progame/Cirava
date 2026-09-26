@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AppInstallerUX xmlns="http://schemas.microsoft.com/msix/appinstallerux"
+                xmlns:ux="http://schemas.microsoft.com/msix/appinstallerux"
+                xmlns:ux2="http://schemas.microsoft.com/msix/appinstallerux/2"
+                IgnorableNamespaces="ux ux2"
+                Version="1.0.0">
+  <UX AccentColor="#7187F1"
+      FontFamily="Segoe UI"
+      AllowUserInteraction="true"
+      BackgroundColor="#171B21"
+      AppNameInTitle="true"
+      HyperLinkFontSize="12">
+    <Icon HorizontalAlignment="center" Logo="Images\Cirava.png" TopMargin="48" />
+    <Buttons HorizontalAlignment="center" Text="Cirava" IsSecondaryButtonAccent="false" />
+    <LaunchWhenReady HorizontalAlignment="left" />
+    <AppInformation Mode="flyout" />
+    <HyperLinks TopMargin="20">
+      <HyperLink Text="Google Drive setup guide"
+                 Url="https://github.com/B1progame/Cirava/blob/main/GOOGLE_SETUP.md"
+                 HorizontalAlignment="center" />
+    </HyperLinks>
+  </UX>
+</AppInstallerUX>

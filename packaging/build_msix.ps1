@@ -1,12 +1,12 @@
 param(
-  [string]$Version = '1.0.0.0',
+  [string]$Version = '1.0.1.0',
   [switch]$Sign
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $output = Join-Path $PSScriptRoot 'output'
-$staging = Join-Path $env:TEMP 'cirava-msix-staging'
+$staging = Join-Path $env:TEMP ('cirava-msix-staging-' + [guid]::NewGuid().ToString('N'))
 $package = Join-Path $output "Cirava-$Version.msix"
 $makeappx = (Get-Command makeappx.exe -ErrorAction SilentlyContinue).Source
 if (-not $makeappx) {
@@ -15,14 +15,16 @@ if (-not $makeappx) {
 }
 if (-not $makeappx) { throw 'makeappx.exe was not found. Install the Windows SDK or MSIX Packaging Tool.' }
 
-if (Test-Path $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
+if (Test-Path -LiteralPath $package) { throw "Refusing to overwrite existing MSIX package: $package" }
 New-Item -ItemType Directory -Path (Join-Path $staging 'Assets') -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $staging 'Msix.AppInstaller.Data\Images') -Force | Out-Null
 Copy-Item (Join-Path $output 'Cirava.exe') (Join-Path $staging 'Cirava.exe') -Force
 Copy-Item (Join-Path $PSScriptRoot 'msix\AppxManifest.xml') (Join-Path $staging 'AppxManifest.xml') -Force
+Copy-Item (Join-Path $PSScriptRoot 'msix\MSIXAppInstallerData.xml') (Join-Path $staging 'Msix.AppInstaller.Data\MSIXAppInstallerData.xml') -Force
+Copy-Item (Join-Path $root 'public\cirava-logo.png') (Join-Path $staging 'Msix.AppInstaller.Data\Images\Cirava.png') -Force
 Copy-Item (Join-Path $PSScriptRoot 'icon-preview-256.png') (Join-Path $staging 'Assets\StoreLogo.png') -Force
 Copy-Item (Join-Path $PSScriptRoot 'icon-preview-256.png') (Join-Path $staging 'Assets\Square150x150Logo.png') -Force
 Copy-Item (Join-Path $PSScriptRoot 'icon-preview-16.png') (Join-Path $staging 'Assets\Square44x44Logo.png') -Force
-if (Test-Path $package) { Remove-Item -LiteralPath $package -Force }
 & $makeappx pack /d $staging /p $package /o
 if ($LASTEXITCODE -ne 0) { throw "makeappx failed with exit code $LASTEXITCODE" }
 

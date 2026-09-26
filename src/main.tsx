@@ -652,7 +652,7 @@ requestAnimationFrame(ciravaHomeOrbit);
    Reflect the test-candidate version in About while retaining the beta label. */
 function ciravaSyncCandidateVersion() {
   const env = (import.meta as any).env || {};
-  const version = env.VITE_CIRAVA_APP_VERSION || '1.0.0';
+  const version = env.VITE_CIRAVA_APP_VERSION || '1.0.1';
   const channel = env.VITE_CIRAVA_APP_CHANNEL || 'beta';
   const displayVersion = channel === 'beta' && !version.includes('-') ? `${version} beta` : version;
   document.querySelectorAll<HTMLElement>('.about-fact').forEach((fact) => {
@@ -676,7 +676,7 @@ function ciravaUpdateScreen() {
     release: env.VITE_CIRAVA_STABLE_MANIFEST_URL || env.VITE_CIRAVA_UPDATE_MANIFEST_URL || '',
     beta: env.VITE_CIRAVA_BETA_RELEASES_API_URL || '',
   };
-  const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.0.0';
+  const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.0.1';
   const initialChannel = env.VITE_CIRAVA_APP_CHANNEL === 'beta' ? 'beta' : 'release';
   document.addEventListener('click', async (event) => {
     const target = event.target instanceof Element ? event.target : null;

@@ -39,15 +39,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = $env:GITHUB_REF_NAME
-          $headers = @{
-            Authorization = "Bearer $env:GH_TOKEN"
-            Accept = 'application/vnd.github+json'
-            'X-GitHub-Api-Version' = '2022-11-28'
-          }
-          $body = @{ tag_name = $tag } | ConvertTo-Json
-          $releaseNotes = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/generate-notes" -Headers $headers -Body $body -ContentType 'application/json'
           $notesPath = Join-Path $env:RUNNER_TEMP 'cirava-release-notes.md'
-          [System.IO.File]::WriteAllText($notesPath, [string]$releaseNotes.body, [System.Text.UTF8Encoding]::new($false))
+          $checkedNotesPath = Join-Path (Get-Location) "docs/releases/$tag.md"
+          if (Test-Path -LiteralPath $checkedNotesPath) {
+            $notes = [System.IO.File]::ReadAllText($checkedNotesPath)
+          } else {
+            $headers = @{
+              Authorization = "Bearer $env:GH_TOKEN"
+              Accept = 'application/vnd.github+json'
+              'X-GitHub-Api-Version' = '2022-11-28'
+            }
+            $body = @{ tag_name = $tag } | ConvertTo-Json
+            $releaseNotes = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/generate-notes" -Headers $headers -Body $body -ContentType 'application/json'
+            $notes = [string]$releaseNotes.body
+          }
+          [System.IO.File]::WriteAllText($notesPath, $notes, [System.Text.UTF8Encoding]::new($false))
           "RELEASE_NOTES_PATH=$notesPath" >> $env:GITHUB_ENV
 
       - name: Test updater and backend

@@ -1,4 +1,6 @@
 $compiler = Get-Command iscc -ErrorAction SilentlyContinue
+& (Join-Path $PSScriptRoot 'generate_installer_panel.ps1')
+
 if ($compiler) {
   & $compiler.Source (Join-Path $PSScriptRoot 'cirava.iss')
   exit $LASTEXITCODE
