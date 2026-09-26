@@ -4,7 +4,7 @@
   <p><strong>Your files, in motion.</strong><br>
   A calmer, more resilient way to move files through Google Drive.</p>
   <p>
-    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/github/v/release/B1progame/Cirava?display_name=tag&style=for-the-badge&color=6079ed&label=STABLE&cacheSeconds=300" alt="Latest stable release"></a>
+    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/STABLE-v1.0.1-6079ed?style=for-the-badge" alt="Latest stable release: v1.0.1"></a>
     <img src="https://img.shields.io/badge/platform-Windows-2aa995?style=for-the-badge" alt="Windows desktop app">
     <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/download-v1.0.1-28344d?style=for-the-badge" alt="Download Cirava 1.0.1"></a>
   </p>
