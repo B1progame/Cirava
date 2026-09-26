@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5f8ff" />
+    <title>Cirava — fast, calm file transfers</title>
+  </head>
+  <body>
+    <div id="root">
+      <div id="boot-screen" role="status" aria-live="polite">
+        <div class="boot-orb" aria-hidden="true"><video autoplay muted loop playsinline preload="auto"><source src="./cirava-startup.mp4" type="video/mp4" /></video><img src="./cirava-logo.svg" alt="" /></div>
+        <strong>Cirava</strong>
+        <span>Preparing your transfer workspace…</span>
+      </div>
+    </div>
+    <style>
+      #boot-screen { min-height: 100vh; display: grid; place-content: center; gap: 10px; text-align: center; font: 15px/1.4 system-ui, sans-serif; color: #263554; background: radial-gradient(circle at 50% 35%, #ffffff, #eef5ff 72%); }
+      #boot-screen strong { font-size: 28px; letter-spacing: -0.04em; }
+      #boot-screen span { color: #71809c; }
+      .boot-orb { position: relative; width: 56px; height: 56px; margin: 0 auto 6px; display: grid; place-items: center; overflow: hidden; border-radius: 18px; background: #ffffff; box-shadow: 0 16px 35px #6d8cff42; animation: cirava-boot-pulse 1.4s ease-in-out infinite; }
+      .boot-orb video { position: absolute; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }\n      .boot-orb img { display: none; width: 100%; height: 100%; object-fit: cover; }
+      @keyframes cirava-boot-pulse { 50% { transform: translateY(-4px) scale(1.04); box-shadow: 0 20px 42px #6d8cff62; } }
+    </style>
+    <script>
+      if (new URLSearchParams(location.search).get('inspect') === '1') {
+        window.pywebview = { api: {
+          boot_state: async () => ({ configured: true, authenticated: true }),
+          load_preferences: async () => ({}),
+          save_preferences: async () => ({ ok: true, saved: [] }),
+          get_account_profile: async () => ({ name: 'Inspection account', email: 'inspection@cirava.local', photoUrl: '', driveName: 'My Drive' }),
+          list_transfers: async () => [],
+          get_transfer_limit: async () => ({ mbps: 0 }),
+          get_upload_concurrency: async () => ({ workers: 4 }),
+          set_transfer_limit: async (mbps) => ({ mbps }),
+          set_upload_concurrency: async (workers) => ({ workers }),
+          measure_connection_speed: async () => ({ bytes: 5000000, seconds: 0.42, mbps: 95.2, mib_per_second: 11.3 }),
+          sign_out: async () => ({ ok: true })
+        } };
+        window.dispatchEvent(new Event('pywebviewready'));
+      }
+    </script>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>

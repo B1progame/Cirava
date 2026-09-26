@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6d87ed"/>
+      <stop offset="1" stop-color="#6bc7bd"/>
+    </linearGradient>
+  </defs>
+  <!-- Keep a real transparent safety margin so Windows taskbar/tray rendering
+       preserves the rounded silhouette instead of showing a square tile. -->
+  <rect x="8" y="8" width="240" height="240" rx="72" fill="url(#bg)"/>
+  <path d="M128 42l14 64 64 14-64 14-14 64-14-64-64-14 64-14z" fill="#fff"/>
+  <circle cx="190" cy="66" r="10" fill="#fff" opacity=".9"/>
+</svg>

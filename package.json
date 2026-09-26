@@ -1,0 +1,30 @@
+{
+  "name": "cirava",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "inspect:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/run_cirava_inspection.ps1",
+    "backend:check": "python -m compileall backend",
+    "package:desktop": "npm.cmd run build && pyinstaller --distpath packaging/output packaging/cirava.spec --noconfirm --clean",
+    "package:installer": "powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_installer.ps1",
+    "package:msix": "powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_msix.ps1"
+  },
+  "dependencies": {
+    "@lordicon/element": "^2.3.1",
+    "@vitejs/plugin-react": "latest",
+    "gsap": "^3.15.0",
+    "lucide-react": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  },
+  "devDependencies": {
+    "@types/react": "latest",
+    "@types/react-dom": "latest"
+  }
+}

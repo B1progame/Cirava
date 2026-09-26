@@ -1,0 +1,401 @@
+/* First-run setup stays inside the desktop viewport instead of scaling past it. */
+.setup-page {
+  min-height: 100vh;
+  overflow: auto;
+  padding: 24px;
+}
+
+/* CSS files are served from /assets in Vite and pywebview. The public logo is
+   intentionally rooted so it resolves in both the browser and packaged app. */
+.brand-mark,
+.desktop-required-orb {
+  background-image: url('/cirava-logo.png');
+  background-size: cover;
+  background-position: center;
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+html[data-theme='dark'] .topbar,
+html[data-theme='dark'] .content,
+html[data-theme='dark'] .main {
+  background: transparent;
+}
+
+html[data-theme='dark'] .home-hero-glass,
+html[data-theme='dark'] .intent-card,
+html[data-theme='dark'] .secondary,
+html[data-theme='dark'] .search,
+html[data-theme='dark'] .filter-button,
+html[data-theme='dark'] .login-card {
+  background: rgba(24, 32, 49, .78);
+  border-color: #33425e;
+  color: #e6ecfa;
+}
+
+html[data-theme='dark'] .home-copy h1,
+html[data-theme='dark'] .page-heading h2,
+html[data-theme='dark'] .login-card h1,
+html[data-theme='dark'] .intent-card strong {
+  color: #e6ecfa;
+}
+
+html[data-theme='dark'] .home-copy p,
+html[data-theme='dark'] .page-heading p,
+html[data-theme='dark'] .intent-card small,
+html[data-theme='dark'] .login-card > p,
+html[data-theme='dark'] .drop-label,
+html[data-theme='dark'] .drop-label span {
+  color: #aab7ce;
+}
+
+html[data-theme='dark'] .login-page,
+html[data-theme='dark'] .setup-page,
+html[data-theme='dark'] .desktop-required {
+  background: radial-gradient(circle at 50% 18%, #1b2942, #101522 68%);
+  color: #e6ecfa;
+}
+
+html[data-theme='dark'] .setup-card,
+html[data-theme='dark'] .setup-walkthrough,
+html[data-theme='dark'] .console-window,
+html[data-theme='dark'] .setup-input {
+  background: rgba(24, 32, 49, .9);
+  border-color: #33425e;
+  color: #e6ecfa;
+}
+
+.setup-card {
+  width: min(900px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+}
+
+.setup-visual { min-width: 0; }
+
+.breadcrumbs span { display: inline-flex; align-items: center; gap: 7px; }
+.breadcrumbs button { color: #71819b; }
+.breadcrumbs button:hover { color: #536bd0; text-decoration: underline; }
+.drive-back { display: inline-flex; align-items: center; gap: 5px; margin: 0 0 16px; color: #6b7b96; font-size: 11px; }
+.drive-back svg { transform: rotate(180deg); }
+.drive-empty { min-height: 280px; display: grid; place-items: center; align-content: center; gap: 9px; padding: 34px; text-align: center; border: 1px dashed #cbd8ea; border-radius: 18px; background: rgba(255,255,255,.38); color: #52627d; }
+.drive-empty p { max-width: 360px; margin: 0 0 6px; color: #8b99ad; font-size: 12px; line-height: 1.55; }
+.empty-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; color: #6a82df; background: #e9efff; }
+.loading-orbit { width: 30px; height: 30px; border: 2px solid #dbe5f5; border-top-color: #6b84e8; border-radius: 50%; animation: drive-spin .8s linear infinite; }
+@keyframes drive-spin { to { transform: rotate(360deg); } }
+
+/* Transfer center: a calm command deck for both directions. */
+.hero-transfer {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(169, 191, 230, .72);
+  border-radius: 26px;
+  background: linear-gradient(135deg, rgba(255,255,255,.78), rgba(237,246,255,.72) 55%, rgba(245,241,255,.82));
+  box-shadow: 0 24px 60px rgba(70, 97, 158, .12), inset 0 1px 0 rgba(255,255,255,.92);
+}
+.hero-transfer::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: .42;
+  background: linear-gradient(115deg, transparent 18%, rgba(116,164,235,.12) 50%, transparent 82%), repeating-linear-gradient(90deg, transparent 0 80px, rgba(116,145,205,.07) 81px 82px);
+  animation: transfer-sheen 8s ease-in-out infinite;
+}
+.hero-transfer > * { position: relative; z-index: 1; }
+.hero-transfer-head { padding: 24px 26px 18px; }
+.hero-transfer h3 { font-size: 18px; letter-spacing: -.03em; }
+.hero-speed strong { color: #5c78df; font-size: 27px; letter-spacing: -.05em; }
+.big-progress { height: 9px; margin-inline: 26px; overflow: hidden; border-radius: 99px; background: rgba(205,216,235,.7); }
+.big-progress i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #6d86ec, #63c8c5); box-shadow: 0 0 18px rgba(99,200,197,.35); }
+.transfer-map { margin: 18px 26px 24px; border: 1px solid rgba(184,204,233,.72); border-radius: 18px; background: rgba(255,255,255,.5); backdrop-filter: blur(14px); }
+.map-flow { min-height: 112px; }
+.flow-line { position: relative; height: 2px; background: linear-gradient(90deg, transparent, #9cb0ea, #69c6c2, transparent); }
+.flow-packet { animation: packet-flight 2.4s cubic-bezier(.4,0,.2,1) infinite; }
+.flow-packet.two { animation-delay: -.8s; }
+.flow-packet.three { animation-delay: -1.6s; }
+@keyframes transfer-sheen { 0%,100% { transform: translateX(-5%); opacity: .25; } 50% { transform: translateX(5%); opacity: .6; } }
+@keyframes packet-flight { 0% { opacity: 0; transform: translateX(-80px) scale(.7); } 25%,75% { opacity: 1; } 100% { opacity: 0; transform: translateX(80px) scale(1.1); } }
+
+/* Drive: make the file browser feel like a place, not a raw table. */
+.drive-toolbar { padding: 10px; border: 1px solid rgba(218,227,241,.8); border-radius: 16px; background: rgba(255,255,255,.42); box-shadow: 0 10px 24px rgba(73,99,153,.05); }
+.file-table { overflow: hidden; border: 1px solid rgba(218,227,241,.8); border-radius: 18px; background: rgba(255,255,255,.42); box-shadow: 0 14px 34px rgba(73,99,153,.06); }
+.table-head { background: rgba(244,248,255,.7); }
+.file-row { transition: background 160ms ease, transform 180ms cubic-bezier(.2,0,0,1), box-shadow 180ms ease; }
+.file-row:hover { transform: translateX(3px); background: rgba(255,255,255,.82); box-shadow: inset 3px 0 0 #7189e9; }
+.file-row .file-name strong { letter-spacing: -.01em; }
+
+html[data-theme='dark'] .hero-transfer { background: linear-gradient(135deg, rgba(24,32,49,.92), rgba(25,40,66,.9)); border-color: #3b4a67; }
+html[data-theme='dark'] .transfer-map, html[data-theme='dark'] .drive-toolbar, html[data-theme='dark'] .file-table { background: rgba(24,32,49,.66); border-color: #33425e; }
+html[data-theme='dark'] .table-head { background: rgba(35,49,76,.72); }
+
+html[data-theme='dark'] .drive-empty { background: rgba(24,32,49,.58); border-color: #3b4a67; color: #e6ecfa; }
+html[data-theme='dark'] .drive-empty p,
+html[data-theme='dark'] .drive-back,
+html[data-theme='dark'] .breadcrumbs button { color: #aab7ce; }
+
+/* Prevent narrow preview surfaces from cropping the hero at its left edge. */
+body { min-width: 0; }
+.content { min-width: 0; }
+
+/* Cirava motion identity: premium, calm, and purposeful. */
+.home-hero-glass { animation: cirava-hero-in 560ms cubic-bezier(.2, 0, 0, 1) both; }
+.home-copy { animation: cirava-copy-in 480ms cubic-bezier(.2, 0, 0, 1) 80ms both; }
+.home-action-stage { animation: cirava-stage-in 520ms cubic-bezier(.2, 0, 0, 1) 160ms both; }
+.home-intent-grid { animation: cirava-cards-in 420ms cubic-bezier(.2, 0, 0, 1) 240ms both; }
+.plus-control { transition: transform 180ms cubic-bezier(.2, 0, 0, 1), filter 180ms ease, box-shadow 240ms ease; }
+.plus-control:hover { transform: scale(1.06) translateY(-3px); filter: saturate(1.08) brightness(1.04); }
+.plus-control:active { transform: scale(.97) translateY(1px); }
+.orbit-a { animation-duration: 18s; }
+.orbit-b { animation-duration: 26s; }
+
+@keyframes cirava-hero-in {
+  from { opacity: 0; transform: translateY(16px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes cirava-copy-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes cirava-stage-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes cirava-cards-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 900px) {
+  .app { min-width: 0; }
+  .sidebar { width: 214px; flex-basis: 214px; padding-inline: 10px; }
+  .content { padding-inline: 24px; }
+  .home-hero-glass { width: 100%; padding-inline: 24px; }
+  .home-intent-grid { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-hero-glass, .home-copy, .home-action-stage, .home-intent-grid, .loading-orbit, .hero-transfer::before, .flow-packet { animation: none; }
+}
+
+@media (max-height: 760px) {
+  .setup-page { align-items: flex-start; }
+  .setup-card { margin-block: auto; }
+  .setup-progress { margin-bottom: 20px; }
+  .setup-layout { gap: 28px; }
+  .console-window { height: 240px; }
+}
+
+/* Apple-design pass: one coherent material system across every screen. */
+:root {
+  --cirava-material-sidebar: rgba(249, 251, 255, .72);
+  --cirava-material-chrome: rgba(249, 251, 255, .48);
+  --cirava-hairline: rgba(214, 224, 240, .72);
+  --cirava-ease: cubic-bezier(.2, 0, 0, 1);
+}
+
+html {
+  font-optical-sizing: auto;
+  text-rendering: optimizeLegibility;
+  scrollbar-color: #b8c5dc transparent;
+  scrollbar-width: thin;
+}
+
+body {
+  font-kerning: normal;
+  -webkit-font-smoothing: antialiased;
+}
+
+.sidebar {
+  background: var(--cirava-material-sidebar);
+  border-right-color: var(--cirava-hairline);
+  box-shadow: 12px 0 36px rgba(52, 76, 125, .035);
+  -webkit-backdrop-filter: blur(24px) saturate(145%);
+  backdrop-filter: blur(24px) saturate(145%);
+}
+
+.topbar {
+  position: relative;
+  z-index: 5;
+  background: var(--cirava-material-chrome);
+  border-bottom-color: var(--cirava-hairline);
+  -webkit-backdrop-filter: blur(22px) saturate(145%);
+  backdrop-filter: blur(22px) saturate(145%);
+}
+
+.topbar::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 -12px;
+  height: 12px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, rgba(220, 229, 243, .18), transparent);
+  opacity: .7;
+}
+
+.brand-mark,
+.desktop-required-orb {
+  transition: transform 260ms var(--cirava-ease), box-shadow 260ms ease;
+}
+
+.brand:hover .brand-mark,
+.desktop-required-orb:hover {
+  transform: translateY(-1px) scale(1.035);
+  box-shadow: 0 12px 26px rgba(88, 120, 240, .24);
+}
+
+.nav-item:focus-visible,
+.account-chip:focus-visible,
+.breadcrumbs button:focus-visible,
+.drive-back:focus-visible,
+.priority-trigger:focus-visible,
+.priority-menu button:focus-visible {
+  outline: 3px solid rgba(93, 121, 233, .3);
+  outline-offset: 2px;
+}
+
+.page-heading h2,
+.home-copy h1,
+.login-card h1,
+.setup-card h1,
+.desktop-required h1 {
+  font-optical-sizing: auto;
+  text-wrap: balance;
+}
+
+.page-heading p,
+.home-copy p,
+.login-card > p,
+.desktop-required p {
+  text-wrap: pretty;
+}
+
+.panel,
+.settings-panel,
+.history-card,
+.queue-row,
+.setup-card,
+.login-card,
+.console-window {
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  backdrop-filter: blur(18px) saturate(130%);
+  transition: box-shadow 260ms var(--cirava-ease), border-color 180ms ease, transform 260ms var(--cirava-ease);
+}
+
+.panel:focus-within,
+.settings-panel:focus-within,
+.setup-card:focus-within,
+.login-card:focus-within {
+  border-color: rgba(127, 151, 229, .5);
+  box-shadow: 0 20px 58px rgba(57, 82, 143, .12), 0 0 0 3px rgba(108, 135, 233, .08);
+}
+
+input,
+select,
+textarea {
+  transition: border-color 180ms ease, box-shadow 220ms ease, background 180ms ease;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #8ea6ed;
+  box-shadow: 0 0 0 4px rgba(110, 135, 234, .12);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .sidebar,
+  .topbar,
+  .home-hero-glass,
+  .hero-transfer,
+  .transfer-map,
+  .drive-toolbar,
+  .file-table,
+  .panel,
+  .settings-panel,
+  .history-card,
+  .queue-row,
+  .setup-card,
+  .login-card,
+  .console-window {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: #f8fbff;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .sidebar,
+  .topbar,
+  .panel,
+  .settings-panel,
+  .history-card,
+  .queue-row,
+  .setup-card,
+  .login-card,
+  .console-window,
+  .file-table,
+  .drive-toolbar {
+    border-color: #8292ae;
+  }
+
+  .nav-item,
+  .page-heading p,
+  .home-copy p,
+  .login-card > p,
+  .desktop-required p {
+    color: #53627a;
+  }
+}
+
+@media (hover: none) {
+  .nav-item:hover,
+  .file-row:hover,
+  .primary:hover,
+  .secondary:hover,
+  .plus-control:hover,
+  .brand:hover .brand-mark,
+  .desktop-required-orb:hover {
+    transform: none;
+  }
+}
+
+html[data-theme='dark'] {
+  --cirava-material-sidebar: rgba(15, 22, 36, .82);
+  --cirava-material-chrome: rgba(15, 22, 36, .56);
+  --cirava-hairline: rgba(66, 82, 111, .72);
+  scrollbar-color: #465776 transparent;
+}
+
+html[data-theme='dark'] .topbar::after {
+  background: linear-gradient(to bottom, rgba(8, 13, 24, .28), transparent);
+}
+
+html[data-theme='dark'] .panel:focus-within,
+html[data-theme='dark'] .settings-panel:focus-within,
+html[data-theme='dark'] .setup-card:focus-within,
+html[data-theme='dark'] .login-card:focus-within {
+  border-color: rgba(123, 151, 229, .62);
+  box-shadow: 0 20px 58px rgba(0, 0, 0, .28), 0 0 0 3px rgba(108, 135, 233, .14);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html[data-theme='dark'] .sidebar,
+  html[data-theme='dark'] .topbar,
+  html[data-theme='dark'] .home-hero-glass,
+  html[data-theme='dark'] .hero-transfer,
+  html[data-theme='dark'] .transfer-map,
+  html[data-theme='dark'] .drive-toolbar,
+  html[data-theme='dark'] .file-table,
+  html[data-theme='dark'] .panel,
+  html[data-theme='dark'] .settings-panel,
+  html[data-theme='dark'] .history-card,
+  html[data-theme='dark'] .queue-row,
+  html[data-theme='dark'] .setup-card,
+  html[data-theme='dark'] .login-card,
+  html[data-theme='dark'] .console-window {
+    background: #182031;
+  }
+}

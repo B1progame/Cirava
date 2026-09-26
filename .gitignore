@@ -1,0 +1,42 @@
+# Local dependencies and build output
+node_modules/
+dist/
+build/
+packaging/output/
+packaging/candidate-*/
+*.py[cod]
+__pycache__/
+.pytest_cache/
+graphify-out/
+/({class
+/remotion-google-cloud-tutorial/
+/video-motion/cirava-guide-video/
+automation/analysis/*.jpg
+automation/analysis/*.json
+automation/analysis/keyframes/
+automation/interaction_scan/*.jpg
+automation/interaction_scan/*.json
+tools/*.png
+tools/cirava-inspection-port.json
+video-motion/Screenshot*.png
+
+# Local configuration, credentials, and test account data
+.env
+.env.*
+!.env.example
+.cirava-e2e-*/
+.cirava-real-*/
+.cirava-*.log
+.cirava-*-url.txt
+*.db
+*.sqlite
+*.sqlite3
+tokens.bin
+client-credentials.bin
+preferences.bin
+
+# Generated media and inspection artifacts
+startup-video-frames/
+animated-preview.png
+source-preview.png
+preview.png

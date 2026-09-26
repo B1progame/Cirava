@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="492" height="940" viewBox="0 0 492 940">
+  <defs>
+    <linearGradient id="surface" x2="1" y2="1">
+      <stop stop-color="#20252c"/>
+      <stop offset=".54" stop-color="#171b21"/>
+      <stop offset="1" stop-color="#20232a"/>
+    </linearGradient>
+    <linearGradient id="orb" x1=".15" y1="0" x2=".85" y2="1">
+      <stop stop-color="#718cf2"/>
+      <stop offset="1" stop-color="#61c6c8"/>
+    </linearGradient>
+    <radialGradient id="halo">
+      <stop stop-color="#607ce8" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#607ce8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="accent" x2="1">
+      <stop stop-color="#728cf3"/>
+      <stop offset="1" stop-color="#62cbc7"/>
+    </linearGradient>
+  </defs>
+  <rect width="492" height="940" fill="url(#surface)"/>
+  <circle cx="372" cy="413" r="260" fill="url(#halo)"/>
+  <path d="M0 1h492" stroke="#91a5ee" stroke-opacity=".4" stroke-width="2"/>
+  <path d="M0 939h492" stroke="#62c8c6" stroke-opacity=".5" stroke-width="2"/>
+  <g transform="translate(46 48)">
+    <rect width="68" height="68" rx="20" fill="#f7f9fc"/>
+    <rect x="5" y="5" width="58" height="58" rx="17" fill="#fff"/>
+    <path d="M22 37 34 20l12 17M34 21v28" fill="none" stroke="#4e9df2" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="m22 39 12 11 12-11" fill="none" stroke="#55c4bb" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="86" y="42" fill="#f2f5fa" font-family="Segoe UI,Arial,sans-serif" font-size="38" font-weight="700" letter-spacing="-1.5">cirava</text>
+    <rect x="87" y="51" width="86" height="25" rx="8" fill="#35404d"/>
+    <text x="130" y="68" fill="#c3d2ee" font-family="Segoe UI,Arial,sans-serif" font-size="13" font-weight="700" letter-spacing="1.2" text-anchor="middle">BETA TEST</text>
+  </g>
+  <text x="46" y="190" fill="#aab7ce" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="700" letter-spacing="3">YOUR DRIVE, IN MOTION</text>
+  <text x="44" y="258" fill="#f3f5fa" font-family="Segoe UI,Arial,sans-serif" font-size="56" font-weight="700" letter-spacing="-2.3">Move at the</text>
+  <text x="44" y="322" fill="#8da3ff" font-family="Segoe UI,Arial,sans-serif" font-size="56" font-weight="700" letter-spacing="-2.3">speed of thought.</text>
+  <text x="47" y="370" fill="#aeb8c9" font-family="Segoe UI,Arial,sans-serif" font-size="24">Fast, resumable Drive transfers.</text>
+  <g transform="translate(246 538)">
+    <ellipse rx="183" ry="91" fill="none" stroke="#7795ed" stroke-opacity=".32" stroke-width="2" transform="rotate(-17)"/>
+    <ellipse rx="151" ry="112" fill="none" stroke="#61c7c3" stroke-opacity=".25" stroke-width="2" transform="rotate(31)"/>
+    <ellipse rx="124" ry="75" fill="none" stroke="#a18ee8" stroke-opacity=".23" stroke-width="2" transform="rotate(-48)"/>
+    <circle cx="130" cy="-91" r="8" fill="#8198f4"/>
+    <circle cx="-164" cy="11" r="6" fill="#66c8c4"/>
+    <circle cx="92" cy="94" r="5" fill="#b297ef"/>
+    <circle r="76" fill="#151a22" stroke="#91a4eb" stroke-opacity=".3" stroke-width="2"/>
+    <circle r="61" fill="url(#orb)"/>
+    <path d="M-20 0h40M0-20v40" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+    <circle r="91" fill="none" stroke="#65c7c4" stroke-opacity=".13" stroke-width="15"/>
+  </g>
+  <text x="46" y="704" fill="#8598bd" font-family="Segoe UI,Arial,sans-serif" font-size="16" font-weight="700" letter-spacing="2.5">MADE FOR THE WAY YOU WORK</text>
+  <g transform="translate(47 744)">
+    <circle cx="12" cy="12" r="12" fill="#263c42"/>
+    <path d="M7 12.5 10.5 16 17.5 8.5" fill="none" stroke="#68d0c3" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="40" y="17" fill="#edf1f7" font-family="Segoe UI,Arial,sans-serif" font-size="22" font-weight="600">Resumable by default</text>
+    <text x="40" y="46" fill="#9da9bc" font-family="Segoe UI,Arial,sans-serif" font-size="19">Pick up where your connection left off.</text>
+  </g>
+  <g transform="translate(47 818)">
+    <circle cx="12" cy="12" r="12" fill="#28374d"/>
+    <path d="M12 5v14m-5-5 5 5 5-5" fill="none" stroke="#8ea9ff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="40" y="17" fill="#edf1f7" font-family="Segoe UI,Arial,sans-serif" font-size="22" font-weight="600">Built for large transfers</text>
+    <text x="40" y="46" fill="#9da9bc" font-family="Segoe UI,Arial,sans-serif" font-size="19">Clear progress. No guesswork.</text>
+  </g>
+  <text x="47" y="907" fill="#78869d" font-family="Segoe UI,Arial,sans-serif" font-size="15" letter-spacing="1.5">PRIVATE BY DESIGN · GOOGLE DRIVE</text>
+</svg>
