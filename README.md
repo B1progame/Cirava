@@ -4,9 +4,9 @@
   <p><strong>Your files, in motion.</strong><br>
   A calmer, more resilient way to move files through Google Drive.</p>
   <p>
-    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/STABLE-v1.0.1-6079ed?style=for-the-badge" alt="Latest stable release: v1.0.1"></a>
+    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/STABLE-v1.1.1-6079ed?style=for-the-badge" alt="Latest stable release: v1.1.1"></a>
     <img src="https://img.shields.io/badge/platform-Windows-2aa995?style=for-the-badge" alt="Windows desktop app">
-    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/download-v1.0.1-28344d?style=for-the-badge" alt="Download Cirava 1.0.1"></a>
+    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/download-v1.1.1-28344d?style=for-the-badge" alt="Download Cirava 1.1.1"></a>
   </p>
 </div>
 
@@ -18,7 +18,7 @@
 
 ## Move files. Keep your momentum.
 
-Cirava is a focused Windows desktop client for Google Drive. Uploads and downloads are designed to recover from interruptions, while live progress makes it easy to see what is happening and what needs attention.
+Cirava is a focused Windows desktop client for Google Drive. Uploads and downloads are designed to recover from interruptions, while live aggregate progress, throughput, pause, resume, and cancel controls make it easy to see what is happening and stay in control. The app can continue transfers from the system tray while its window is closed.
 
 | Keep moving | Stay in control | Keep credentials local |
 |:--|:--|:--|
@@ -26,7 +26,7 @@ Cirava is a focused Windows desktop client for Google Drive. Uploads and downloa
 
 ## Get Cirava
 
-**[Download Cirava v1.0.1 for Windows](https://github.com/B1progame/Cirava/releases/latest)** from GitHub Releases. The installer is `Cirava-Setup-1.0.1.exe`.
+**[Download Cirava v1.1.1 for Windows](https://github.com/B1progame/Cirava/releases/latest)** from GitHub Releases. Choose `Cirava-Setup-1.1.1.exe` for the guided installer or `Cirava.exe` for the standalone app. The release also includes `update-manifest.json` for checksum-verified in-app updates.
 
 Cirava connects with a Google **Desktop OAuth client**. Follow the [Google setup guide](GOOGLE_SETUP.md) to configure the client ID and Drive API access. Cirava never asks for your Google password.
 
@@ -57,7 +57,7 @@ More detail: [testing](TESTING.md) · [architecture](ARCHITECTURE.md) · [packag
 - Google sign-in uses authorization code + PKCE and the `drive.file` scope.
 - OAuth tokens are protected with Windows DPAPI.
 - Transfers respect Google Drive permissions, quotas, and rate limits.
-- Updates use HTTPS and verify the installer SHA-256 before installation.
+- Updates use HTTPS and verify the downloaded app against its published SHA-256 before applying it.
 
 See the [security model](SECURITY.md) and [performance notes](PERFORMANCE.md).
 
