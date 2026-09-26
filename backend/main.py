@@ -15,13 +15,14 @@ import urllib.request
 from pathlib import Path
 
 from cirava_backend.drive_api import DriveApiClient, DriveApiError
-from cirava_backend.adaptive import AdaptiveConcurrencyController, AdaptiveController, AdaptiveUploadConcurrencyController
+from cirava_backend.drive_archive import download_folder_zip
+from cirava_backend.adaptive import AdaptiveConcurrencyController, AdaptiveController, AdaptiveUploadConcurrencyController, AdaptiveWorkerGate, AggregateUploadThroughput
 from cirava_backend.models import TransferRecord, TransferStatus
 from cirava_backend.oauth import OAuthConfig, OAuthSession, TokenManager, TokenStore
 from cirava_backend.notifications import TrayNotifier
 from cirava_backend.storage import TransferStore
 from cirava_backend.transfer_engine import ResumableUploader, SegmentedDownloader, TokenBucket, TransferStopped, TransferTelemetry, resolve_conflict, verify_md5
-from cirava_backend.updater import Updater, is_newer_version
+from cirava_backend.updater import Updater, is_newer_version, requires_major_installer
 from cirava_backend import __version__
 
 
@@ -52,6 +53,7 @@ class CiravaApi:
         self.start_workers = start_workers
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.store = TransferStore(self.data_dir / "transfers.db")
+        self._recover_interrupted_transfers()
         self.tokens = TokenStore(self.data_dir / "tokens.bin")
         self.client_credentials = TokenStore(self.data_dir / "client-credentials.bin")
         self.preferences = TokenStore(self.data_dir / "preferences.bin")
@@ -63,15 +65,69 @@ class CiravaApi:
         self._controls: dict[str, dict[str, object]] = {}
         self._worker_specs: dict[str, tuple[str, tuple[object, ...]]] = {}
         # Keep cross-file uploads concurrent enough to saturate fast links without
-        # creating an unbounded thread/request storm for large folder batches.
+        # allowing each finished file's individual average to bias the next run.
         self._upload_adaptive = AdaptiveUploadConcurrencyController(workers=max(1, min(8, int(self._setting("upload_concurrency") or 4))))
-        self._upload_slots = threading.Semaphore(self._upload_adaptive.workers)
+        self._upload_adaptive_lock = threading.Lock()
+        self._upload_gate = AdaptiveWorkerGate(self._upload_adaptive.workers)
+        self._upload_telemetry = AggregateUploadThroughput(sample_interval=1.5)
         self._bandwidth_lock = threading.Lock()
         self._bandwidth_bucket: TokenBucket | None = None
         self._set_bandwidth_bucket_from_setting()
         self._folder_lock = threading.Lock()
         self._folder_cache: dict[tuple[str, str], str] = {}
         self._notifier = TrayNotifier()
+        self._quit_callback = None
+
+    _TRAY_ACTIVE_STATUSES = {
+        TransferStatus.QUEUED,
+        TransferStatus.PREPARING,
+        TransferStatus.TRANSFERRING,
+        TransferStatus.WAITING_FOR_NETWORK,
+        TransferStatus.RATE_LIMITED,
+        TransferStatus.VERIFYING,
+    }
+
+    def tray_transfer_summary(self) -> dict[str, int]:
+        records = self.store.list()
+        return {
+            "active": sum(record.status in self._TRAY_ACTIVE_STATUSES for record in records),
+            "paused": sum(record.status == TransferStatus.PAUSED for record in records),
+        }
+
+    def pause_all_transfers(self) -> dict[str, int]:
+        records = [record for record in self.store.list() if record.status in self._TRAY_ACTIVE_STATUSES]
+        for record in records:
+            self.pause_transfer(record.id)
+        return {"paused": len(records)}
+
+    def resume_all_transfers(self) -> dict[str, int]:
+        records = [record for record in self.store.list() if record.status == TransferStatus.PAUSED]
+        for record in records:
+            self.resume_transfer(record.id)
+        return {"resumed": len(records)}
+
+    def cancel_all_transfers(self) -> dict[str, int]:
+        records = [record for record in self.store.list() if record.status in self._TRAY_ACTIVE_STATUSES]
+        for record in records:
+            self.cancel_transfer(record.id)
+        return {"cancelled": len(records)}
+
+    def _recover_interrupted_transfers(self) -> None:
+        """Make transfers left active by a previous process resumable and honest."""
+        interrupted = {
+            TransferStatus.QUEUED,
+            TransferStatus.PREPARING,
+            TransferStatus.TRANSFERRING,
+            TransferStatus.WAITING_FOR_NETWORK,
+            TransferStatus.RATE_LIMITED,
+            TransferStatus.VERIFYING,
+        }
+        for record in self.store.list():
+            if record.status not in interrupted:
+                continue
+            record.status = TransferStatus.PAUSED
+            record.speed_bps = 0
+            self.store.upsert(record)
 
     def _worker_started(self, transfer_id: str) -> None:
         with self._worker_condition:
@@ -263,6 +319,24 @@ class CiravaApi:
         self._drive().trash_file(drive_file_id)
         return {"id": drive_file_id, "status": "trashed"}
 
+    def download_drive_folder_zip(self, drive_folder_id: str, local_path: str) -> dict:
+        if not drive_folder_id or not local_path:
+            raise ValueError("Drive folder and local ZIP destination are required")
+        return download_folder_zip(self._drive(), drive_folder_id, local_path)
+
+    def download_drive_folder_zip_by_name(self, folder_name: str, local_path: str) -> dict:
+        clean_name = folder_name.strip()
+        if not clean_name or not local_path:
+            raise ValueError("Drive folder name and local ZIP destination are required")
+        drive = self._drive()
+        shared_drive_id = self._setting("shared_drive_id") or None
+        matches = [str(item["id"]) for item in drive.find_folders_by_name(clean_name, shared_drive_id=shared_drive_id) if item.get("id")]
+        if not matches:
+            raise FileNotFoundError(f"Could not find the Drive folder {clean_name!r}")
+        if len(matches) > 1:
+            raise ValueError(f"More than one Drive folder is named {clean_name!r}; open the folder and try from its unique parent")
+        return download_folder_zip(drive, matches[0], local_path)
+
     def read_drive_file(self, drive_file_id: str, mime_type: str = "text/plain", max_bytes: int = 2_000_000) -> dict:
         if not drive_file_id:
             raise ValueError("Drive file ID is required")
@@ -453,8 +527,9 @@ class CiravaApi:
     def set_upload_concurrency(self, workers: int = 4) -> dict:
         value = max(1, min(8, int(workers)))
         self._set_setting("upload_concurrency", str(value))
-        with self._control_lock:
-            self._upload_slots = threading.Semaphore(value)
+        with self._upload_adaptive_lock:
+            self._upload_adaptive = AdaptiveUploadConcurrencyController(workers=value)
+            self._upload_gate.resize(value)
         return {"workers": value}
 
     def remove_transfer(self, transfer_id: str) -> dict:
@@ -483,44 +558,98 @@ class CiravaApi:
     def check_for_update(self, manifest_url: str, current_version: str | None = None) -> dict:
         current = current_version or __version__
         manifest = Updater(self.data_dir / "updates").fetch_manifest(manifest_url)
-        return {"available": is_newer_version(manifest.version, current), "version": manifest.version, "current_version": current, "release_notes": list(manifest.release_notes)}
+        installer_required = requires_major_installer(manifest.version, current)
+        return {"available": is_newer_version(manifest.version, current), "version": manifest.version, "current_version": current, "release_notes": list(manifest.release_notes), "update_type": "installer" if installer_required else "in_place", "in_place_available": bool(manifest.app_url and manifest.app_sha256)}
 
     def stage_update(self, manifest_url: str, current_version: str | None = None) -> dict:
         current = current_version or __version__
         manifest = Updater(self.data_dir / "updates").fetch_manifest(manifest_url)
         if not is_newer_version(manifest.version, current):
             raise ValueError(f"Manifest version {manifest.version} is not newer than Cirava {current}")
-        staged = Updater(self.data_dir / "updates").download_and_stage(manifest)
-        return {"staged": True, "path": str(staged), "version": manifest.version}
+        installer_required = requires_major_installer(manifest.version, current)
+        updater = Updater(self.data_dir / "updates")
+        if installer_required:
+            staged = updater.download_and_stage(manifest)
+            update_type = "installer"
+        else:
+            staged = updater.download_app_and_stage(manifest)
+            update_type = "in_place"
+        return {"staged": True, "path": str(staged), "version": manifest.version, "update_type": update_type}
 
-    def restart_staged_update(self, staged_path: str) -> dict:
+    def restart_staged_update(self, staged_path: str, update_type: str = "installer") -> dict:
         updates_dir = (self.data_dir / "updates").resolve()
         candidate = Path(staged_path).resolve()
         if candidate.suffix.lower() != ".exe" or updates_dir not in candidate.parents or not candidate.is_file():
-            raise ValueError("Staged update path is not a valid Cirava installer")
-        subprocess.Popen([str(candidate), "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"], cwd=str(candidate.parent))
-        return {"started": True, "path": str(candidate)}
+            raise ValueError("Staged update path is not a valid Cirava update executable")
+        if update_type == "installer":
+            subprocess.Popen([str(candidate), "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"], cwd=str(candidate.parent))
+            return {"started": True, "path": str(candidate), "update_type": update_type}
+        if update_type != "in_place":
+            raise ValueError("Unknown update type")
+        if not getattr(sys, "frozen", False):
+            raise RuntimeError("In-place updates are only available in the installed Cirava app")
+        target = Path(sys.executable).resolve()
+        if target.name.lower() != "cirava.exe" or target == candidate:
+            raise RuntimeError("The current Cirava executable path is not safe to update")
+        import base64
+        script = (
+            "$ErrorActionPreference='Stop';"
+            f"$ciravaPid={os.getpid()};$source='{str(candidate).replace(chr(39), chr(39)*2)}';"
+            f"$target='{str(target).replace(chr(39), chr(39)*2)}';"
+            "while(Get-Process -Id $ciravaPid -ErrorAction SilentlyContinue){Start-Sleep -Milliseconds 300};"
+            "$replacement=$target+'.new';Copy-Item -LiteralPath $source -Destination $replacement -Force;"
+            "Move-Item -LiteralPath $replacement -Destination $target -Force;"
+            "Start-Process -FilePath $target -WorkingDirectory (Split-Path -Parent $target);"
+            "Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue"
+        )
+        encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+        powershell = str(Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")
+        args = [powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded]
+        program_files = (os.environ.get("ProgramFiles", r"C:\Program Files"), os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
+        if any(str(target).casefold().startswith(str(folder).casefold() + "\\") for folder in program_files if folder):
+            subprocess.Popen(["powershell.exe", "-NoProfile", "-Command", "Start-Process", "-FilePath", powershell, "-ArgumentList", "'-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + encoded + "'", "-Verb", "RunAs"], cwd=str(candidate.parent))
+        else:
+            subprocess.Popen(args, cwd=str(candidate.parent), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return {"started": True, "path": str(candidate), "update_type": update_type}
+
+    def request_quit(self) -> None:
+        if callable(self._quit_callback):
+            self._quit_callback()
 
     def _upload_worker(self, record: TransferRecord, chunk_size: int) -> None:
         self._worker_started(record.id)
         acquired = False
         try:
-            while self._should_continue(record.id):
-                acquired = self._upload_slots.acquire(timeout=0.25)
-                if acquired:
-                    break
+            acquired = self._upload_gate.acquire(should_continue=lambda: self._should_continue(record.id))
             if not acquired:
                 record.status = TransferStatus.PAUSED if self._stop_action(record.id) == "pause" else TransferStatus.CANCELLED
                 self.store.upsert(record)
                 return
+            self._upload_telemetry.begin(record.id, record.bytes_transferred)
             self._upload_worker_impl(record, chunk_size)
         finally:
+            if acquired and record.status == TransferStatus.FAILED:
+                self._adjust_upload_concurrency(error=True, rate_limited=record.rate_limit_events > 0)
             if acquired:
-                self._upload_slots.release()
-            if record.status in {TransferStatus.COMPLETED, TransferStatus.FAILED}:
-                next_workers = self._upload_adaptive.observe(aggregate_throughput_bps=record.average_speed_bps, error=record.status == TransferStatus.FAILED, rate_limited=record.rate_limit_events > 0)
-                self._set_setting("upload_concurrency", str(next_workers))
+                self._upload_telemetry.finish(record.id)
+                self._upload_gate.release()
             self._worker_finished(record.id)
+
+    def _adjust_upload_concurrency(self, *, error: bool = False, rate_limited: bool = False) -> int:
+        if self._upload_gate.active < 2 and not error and not rate_limited:
+            return self._upload_gate.workers
+        aggregate_bps = self._upload_telemetry.last_throughput_bps
+        with self._upload_adaptive_lock:
+            previous = self._upload_adaptive.workers
+            next_workers = self._upload_adaptive.observe(
+                aggregate_throughput_bps=aggregate_bps,
+                error=error,
+                rate_limited=rate_limited,
+            )
+            if next_workers != previous:
+                self._upload_gate.resize(next_workers)
+                self._set_setting("upload_concurrency", str(next_workers))
+            return next_workers
 
     def _upload_worker_impl(self, record: TransferRecord, chunk_size: int) -> None:
         try:
@@ -542,7 +671,11 @@ class CiravaApi:
             telemetry = TransferTelemetry()
             def retry_observed(attempt: int, delay: float, error: Exception) -> None:
                 self._record_retry(record, attempt, delay, error)
-            controller = AdaptiveController(chunk_size=chunk_size, min_chunk=min(16 * 1024 * 1024, chunk_size), max_chunk=256 * 1024 * 1024)
+                status = getattr(error, "status", None)
+                is_rate_limited = status in {429, 403}
+                controller.observe(throughput_bps=0, latency_ms=0, error_rate=1, rate_limited=is_rate_limited)
+                self._adjust_upload_concurrency(error=True, rate_limited=is_rate_limited)
+            controller = AdaptiveController(chunk_size=chunk_size, min_chunk=min(16 * 1024 * 1024, chunk_size), max_chunk=128 * 1024 * 1024)
             def upload_progress(done: int, _total: int, _attempt: int) -> None:
                 record.status = TransferStatus.TRANSFERRING
                 speed, average, peak = telemetry.observe(done)
@@ -550,15 +683,16 @@ class CiravaApi:
                 record.speed_bps = speed
                 record.average_speed_bps = average
                 record.peak_speed_bps = peak
+                aggregate_bps = self._upload_telemetry.observe(record.id, done)
+                if aggregate_bps is not None and self._upload_gate.active >= 2:
+                    self._adjust_upload_concurrency()
                 self.store.update_progress(record.id, bytes_transferred=done, speed_bps=speed, average_speed_bps=average, peak_speed_bps=peak)
-            chunk_started = time.monotonic()
             def put_chunk(data: bytes, start: int, end: int, total: int) -> int | None:
-                nonlocal chunk_started
                 self._throttle(len(data))
+                request_started = time.monotonic()
                 result = client.put_upload_chunk(session, data, start, end, total)
-                elapsed = max(time.monotonic() - chunk_started, 1e-6)
+                elapsed = max(time.monotonic() - request_started, 1e-6)
                 controller.observe(throughput_bps=int(len(data) / elapsed), latency_ms=elapsed * 1000, error_rate=0, rate_limited=False)
-                chunk_started = time.monotonic()
                 return result
             ResumableUploader(should_continue=lambda: self._should_continue(record.id), retryable_error=self._is_retryable_error, retry_observed=retry_observed).upload(Path(record.local_path), chunk_size, put_chunk, upload_progress, next_chunk_size=lambda: controller.chunk_size, initial_offset=record.bytes_transferred)
             record.bytes_transferred = record.size
@@ -773,8 +907,43 @@ def run() -> None:
         if callable(destroy):
             destroy()
 
+    api._quit_callback = quit_app
     api._notifier.set_quit_callback(quit_app)
-    window.events.closing += lambda: _close_to_tray(window, state, api._notifier)
+
+    def navigate_from_tray(page: str) -> None:
+        _restore_window(window)
+        try:
+            window.evaluate_js(
+                "window.dispatchEvent(new CustomEvent('cirava:tray-navigate', {detail: {page: "
+                + json.dumps(str(page))
+                + "}}))"
+            )
+        except Exception:
+            pass
+
+    def control_transfers_from_tray(action: str) -> None:
+        methods = {
+            "pause": (api.pause_all_transfers, "Transfers paused", "paused"),
+            "resume": (api.resume_all_transfers, "Transfers resumed", "resumed"),
+            "cancel": (api.cancel_all_transfers, "Transfers stopped", "cancelled"),
+        }
+        method, heading, result_key = methods[action]
+        result = method()
+        count = int(result.get(result_key, 0))
+        api._notifier.notify(heading, f"{count} transfer(s) {result_key}.")
+
+    api._notifier.set_navigation_callback(navigate_from_tray)
+    api._notifier.set_transfer_callbacks(control_transfers_from_tray, api.tray_transfer_summary)
+
+    def close_to_tray() -> bool:
+        moving_statuses = {TransferStatus.QUEUED, TransferStatus.PREPARING, TransferStatus.TRANSFERRING}
+        try:
+            active_count = sum(record.status in moving_statuses for record in api.store.list())
+        except Exception:
+            active_count = 0
+        return _close_to_tray(window, state, api._notifier, active_count)
+
+    window.events.closing += close_to_tray
     api.start_background_services()
     webview.start(gui="edgechromium")
 
@@ -790,7 +959,7 @@ def _restore_window(window: object) -> None:
                 continue
 
 
-def _close_to_tray(window: object, state: dict[str, bool] | None = None, notifier: object | None = None) -> bool:
+def _close_to_tray(window: object, state: dict[str, bool] | None = None, notifier: object | None = None, active_transfer_count: int = 0) -> bool:
     """Hide the desktop window instead of terminating Cirava on close."""
     if state and state.get("quitting"):
         return True
@@ -802,6 +971,16 @@ def _close_to_tray(window: object, state: dict[str, bool] | None = None, notifie
     if callable(hide):
         try:
             hide()
+            if notifier is not None:
+                if active_transfer_count:
+                    noun = "transfer is" if active_transfer_count == 1 else "transfers are"
+                    message = f"{active_transfer_count} {noun} continuing in the background. Open Cirava from the system tray to check progress."
+                else:
+                    message = "Cirava is still running in the system tray. Transfers continue in the background."
+                try:
+                    notifier.notify("Cirava is still running", message)
+                except Exception:
+                    pass
             return False
         except Exception:
             pass

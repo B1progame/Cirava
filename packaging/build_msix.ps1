@@ -1,5 +1,5 @@
 param(
-  [string]$Version = '1.0.1.0',
+  [string]$Version = '1.1.1.0',
   [switch]$Sign
 )
 
@@ -22,8 +22,8 @@ Copy-Item (Join-Path $output 'Cirava.exe') (Join-Path $staging 'Cirava.exe') -Fo
 Copy-Item (Join-Path $PSScriptRoot 'msix\AppxManifest.xml') (Join-Path $staging 'AppxManifest.xml') -Force
 Copy-Item (Join-Path $PSScriptRoot 'msix\MSIXAppInstallerData.xml') (Join-Path $staging 'Msix.AppInstaller.Data\MSIXAppInstallerData.xml') -Force
 Copy-Item (Join-Path $root 'public\cirava-logo.png') (Join-Path $staging 'Msix.AppInstaller.Data\Images\Cirava.png') -Force
-Copy-Item (Join-Path $PSScriptRoot 'icon-preview-256.png') (Join-Path $staging 'Assets\StoreLogo.png') -Force
-Copy-Item (Join-Path $PSScriptRoot 'icon-preview-256.png') (Join-Path $staging 'Assets\Square150x150Logo.png') -Force
+Copy-Item (Join-Path $root 'public\cirava-logo.png') (Join-Path $staging 'Assets\StoreLogo.png') -Force
+Copy-Item (Join-Path $root 'public\cirava-logo.png') (Join-Path $staging 'Assets\Square150x150Logo.png') -Force
 Copy-Item (Join-Path $PSScriptRoot 'icon-preview-16.png') (Join-Path $staging 'Assets\Square44x44Logo.png') -Force
 & $makeappx pack /d $staging /p $package /o
 if ($LASTEXITCODE -ne 0) { throw "makeappx failed with exit code $LASTEXITCODE" }

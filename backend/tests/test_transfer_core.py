@@ -4,6 +4,7 @@ import hashlib
 import sqlite3
 from pathlib import Path
 
+from cirava_backend import adaptive
 from cirava_backend.adaptive import AdaptiveConcurrencyController, AdaptiveController, AdaptiveUploadConcurrencyController
 from cirava_backend.models import TransferRecord, TransferStatus
 from cirava_backend.storage import TransferStore
@@ -22,6 +23,12 @@ class AdaptiveControllerTests(unittest.TestCase):
         controller.observe(throughput_bps=20_000_000, latency_ms=900, error_rate=.3, rate_limited=True)
         self.assertEqual(controller.chunk_size, 32 * 1024 * 1024)
 
+    def test_large_file_chunk_growth_uses_throughput_not_whole_chunk_duration(self):
+        controller = AdaptiveController(chunk_size=64 * 1024 * 1024, min_chunk=16 * 1024 * 1024, max_chunk=128 * 1024 * 1024)
+        for _ in range(3):
+            controller.observe(throughput_bps=32 * 1024 * 1024, latency_ms=2000, error_rate=0, rate_limited=False)
+        self.assertEqual(controller.chunk_size, 128 * 1024 * 1024)
+
     def test_concurrency_grows_after_stable_ranges_and_backs_off_on_error(self):
         controller = AdaptiveConcurrencyController(workers=3, max_workers=8)
         for _ in range(4):
@@ -31,15 +38,50 @@ class AdaptiveControllerTests(unittest.TestCase):
         self.assertEqual(controller.workers, 3)
 
     def test_upload_concurrency_hill_climber_stays_within_one_to_eight(self):
-        controller = AdaptiveUploadConcurrencyController(workers=4)
-        for _ in range(6):
-            controller.observe(aggregate_throughput_bps=500_000_000)
-        self.assertGreaterEqual(controller.workers, 4)
+        controller = AdaptiveUploadConcurrencyController(workers=2, max_workers=4)
+        levels = [controller.observe(aggregate_throughput_bps=500_000_000) for _ in range(4)]
+        self.assertEqual(levels[-1], 3)
+        self.assertEqual(controller.observe(aggregate_throughput_bps=500_000_000), 3)
+        self.assertEqual(controller.observe(aggregate_throughput_bps=500_000_000), 2)
+        controller = AdaptiveUploadConcurrencyController(workers=2, max_workers=4)
+        for rate in (500_000_000, 500_000_000, 500_000_000, 500_000_000):
+            controller.observe(aggregate_throughput_bps=rate)
+        self.assertEqual(controller.workers, 3)
+        controller.observe(aggregate_throughput_bps=550_000_000)
+        self.assertEqual(controller.workers, 3)
         grown = controller.workers
         controller.observe(aggregate_throughput_bps=100_000_000, error=True)
         self.assertLessEqual(controller.workers, grown)
         self.assertGreaterEqual(controller.workers, 1)
         self.assertLessEqual(controller.workers, 8)
+
+    def test_batch_speed_is_measured_from_the_sum_of_concurrent_file_progress(self):
+        meter_type = getattr(adaptive, "AggregateUploadThroughput", None)
+        self.assertIsNotNone(meter_type, "batch uploads need aggregate byte-rate telemetry")
+        now = [0.0]
+        telemetry = meter_type(sample_interval=1.0, clock=lambda: now[0])
+        self.assertIsNone(telemetry.observe("large", 0))
+        now[0] = 1.0
+        self.assertEqual(telemetry.observe("large", 10_000_000), 10_000_000)
+        now[0] = 1.2
+        self.assertIsNone(telemetry.observe("small", 0))
+        now[0] = 2.0
+        self.assertEqual(telemetry.observe("small", 8_000_000), 8_000_000)
+
+    def test_upload_worker_limit_can_grow_and_shrink_during_a_running_batch(self):
+        gate_type = getattr(adaptive, "AdaptiveWorkerGate", None)
+        self.assertIsNotNone(gate_type, "upload worker slots must be resizable while transfers are running")
+        gate = gate_type(1, max_workers=3)
+        self.assertTrue(gate.acquire(timeout=0))
+        self.assertFalse(gate.acquire(timeout=0))
+        gate.resize(2)
+        self.assertTrue(gate.acquire(timeout=0))
+        gate.resize(1)
+        self.assertFalse(gate.acquire(timeout=0))
+        gate.release()
+        gate.release()
+        self.assertTrue(gate.acquire(timeout=0))
+        gate.release()
 
 
 class TransferStoreTests(unittest.TestCase):

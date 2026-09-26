@@ -8,6 +8,7 @@ import re
 from urllib.parse import urlparse
 import urllib.request
 import base64
+from dataclasses import replace
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -52,6 +53,11 @@ def is_newer_version(candidate: str, current: str) -> bool:
     return len(candidate_pre) > len(current_pre)
 
 
+def requires_major_installer(candidate: str, current: str) -> bool:
+    """Use the setup wizard only when moving to a newer major release."""
+    return _version_tuple(candidate)[0] > _version_tuple(current)[0]
+
+
 def _require_https(url: str, label: str) -> None:
     parsed = urlparse(url)
     if parsed.scheme.lower() != "https" or not parsed.hostname or parsed.username or parsed.password:
@@ -66,6 +72,8 @@ class UpdateManifest:
     release_notes: tuple[str, ...] = ()
     signature: str | None = None
     public_key: str | None = None
+    app_url: str | None = None
+    app_sha256: str | None = None
 
     @classmethod
     def from_json(cls, payload: str | bytes) -> "UpdateManifest":
@@ -77,6 +85,14 @@ class UpdateManifest:
         if not isinstance(version, str) or not version or not isinstance(url, str) or not url or not isinstance(digest, str) or not re.fullmatch(r"[a-fA-F0-9]{64}", digest):
             raise ValueError("Update manifest requires version, url, and a SHA-256 checksum")
         _require_https(url, "Update installer")
+        app_url = data.get("appUrl")
+        app_sha256 = data.get("appSha256")
+        if (app_url is None) != (app_sha256 is None):
+            raise ValueError("Update manifest appUrl and appSha256 must be provided together")
+        if app_url is not None:
+            if not isinstance(app_url, str) or not app_url or not isinstance(app_sha256, str) or not re.fullmatch(r"[a-fA-F0-9]{64}", app_sha256):
+                raise ValueError("Update manifest appUrl and appSha256 are invalid")
+            _require_https(app_url, "Update app")
         _version_tuple(version)
         if not isinstance(notes, list) or not all(isinstance(note, str) for note in notes):
             raise ValueError("Update release notes must be a list of strings")
@@ -84,7 +100,7 @@ class UpdateManifest:
         public_key = data.get("publicKey")
         if (signature is not None and not isinstance(signature, str)) or (public_key is not None and not isinstance(public_key, str)):
             raise ValueError("Update manifest signature fields must be strings")
-        return cls(version=version, url=url, sha256=digest.lower(), release_notes=tuple(notes), signature=signature, public_key=public_key)
+        return cls(version=version, url=url, sha256=digest.lower(), release_notes=tuple(notes), signature=signature, public_key=public_key, app_url=app_url, app_sha256=app_sha256.lower() if app_sha256 else None)
 
 
 class Updater:
@@ -158,6 +174,12 @@ class Updater:
         except Exception:
             staged.unlink(missing_ok=True)
             raise
+
+    def download_app_and_stage(self, manifest: UpdateManifest) -> Path:
+        if not manifest.app_url or not manifest.app_sha256:
+            raise ValueError("This release does not provide an in-place app update; use its installer")
+        app_manifest = replace(manifest, url=manifest.app_url, sha256=manifest.app_sha256, signature=None, public_key=None)
+        return self.download_and_stage(app_manifest)
 
     def verify_and_stage(self, payload: bytes, manifest: UpdateManifest) -> Path:
         if len(payload) > self.MAX_INSTALLER_BYTES:

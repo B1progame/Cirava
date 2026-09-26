@@ -52,12 +52,12 @@
 .scan-error { display: flex; align-items: center; gap: 7px; margin-top: 14px; padding: 10px 12px; border-radius: 10px; color: #a34747; background: #fff0f0; font-size: 11px; }
 .spin { animation: scan-spin 1s linear infinite; }
 @keyframes scan-spin { to { transform: rotate(360deg); } }
-@media (max-width: 1050px) { .scan-repeat-grid { grid-template-columns: 1fr; } .scan-control-card { min-height: 0; } .panel-copy { min-height: 0; } }
+@media (max-width: 1050px) { .scan-repeat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .scan-control-card:last-child { grid-column: 1 / -1; } .scan-control-card { min-height: 0; } .panel-copy { min-height: 0; } }
 @media (max-width: 650px) { .scan-repeat-status { align-items: flex-start; } .scan-status-time { display: none; } .scan-stat-grid { grid-template-columns: repeat(2, 1fr); } .create-folder-row { flex-direction: column; } }
 
 /* Scan & repeat redesign. The shared .panel class is absolute for popovers; workflow cards must stay in flow. */
 .scan-repeat-page { max-width: 1180px; margin: 0 auto; gap: 20px; padding-bottom: 42px; }
-.scan-repeat-page .panel { position: relative; top: auto; right: auto; z-index: 1; animation: none; }
+.scan-repeat-page .panel { position: relative; top: auto; right: auto; z-index: 1; width: auto; max-width: none; min-width: 0; animation: none; }
 .scan-repeat-heading { align-items: center; margin-bottom: 2px; }
 .scan-repeat-heading h2 { font-size: clamp(30px, 3.6vw, 46px); letter-spacing: -.06em; }
 .scan-repeat-heading p { max-width: 520px; }
@@ -103,7 +103,7 @@ html[data-theme='dark'] .create-folder-row input, html[data-theme='dark'] .repea
 html[data-theme='dark'] .scan-new-item:hover { background: rgba(83,104,164,.14); }
 html[data-theme='dark'] .scan-error { color: #ffb4b4; background: rgba(100,39,50,.28); }
 @media (max-width: 980px) { .scan-repeat-grid { grid-template-columns: 1fr 1fr; } .scan-control-card:last-child { grid-column: 1 / -1; min-height: 220px; } }
-@media (max-width: 680px) { .scan-repeat-heading { align-items: flex-start; flex-direction: column; gap: 16px; } .scan-repeat-heading .heading-actions, .scan-repeat-heading .primary { width: 100%; } .scan-repeat-grid { grid-template-columns: 1fr; } .scan-control-card:last-child { grid-column: auto; } .scan-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .scan-repeat-status { align-items: flex-start; } }
+@media (max-width: 680px) { .scan-repeat-heading { align-items: flex-start; flex-direction: column; gap: 16px; } .scan-repeat-heading .heading-actions, .scan-repeat-heading .primary { width: 100%; } .scan-repeat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .scan-control-card:last-child { grid-column: 1 / -1; } .scan-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .scan-repeat-status { align-items: flex-start; } }
 /* Final Scan & repeat composition: one calm focal point, then useful controls. */
 .scan-repeat-page { display: flex; flex-direction: column; max-width: 1180px; gap: 18px; padding-bottom: 48px; }
 .scan-repeat-heading { display: flex; justify-content: space-between; gap: 24px; align-items: flex-end; margin-bottom: 4px; }
@@ -160,4 +160,45 @@ html[data-theme='dark'] .scan-status-pill { border-color: rgba(128,151,204,.3); 
 html[data-theme='dark'] .scan-empty-result { border-color: rgba(126,151,205,.38); background: rgba(70,93,143,.12); }.scan-empty-result strong { color: #e5ecfb; }.scan-empty-result span { color: #9eacc4; }.scan-empty-icon { background: rgba(101,130,225,.18); }
 @media (max-width: 880px) { .scan-repeat-hero { grid-template-columns: 1fr; }.scan-hero-visual { min-height: 260px; border-top: 1px solid rgba(145,171,219,.22); border-left: 0; }.scan-hero-copy { padding-bottom: 20px; } }
 @media (max-width: 680px) { .scan-repeat-heading { align-items: flex-start; flex-direction: column; }.scan-heading-meta { align-self: flex-start; }.scan-hero-copy { padding: 24px; }.scan-status-pill { min-width: 0; width: 100%; }.scan-hero-actions { align-items: flex-start; flex-direction: column; }.scan-hero-actions .scan-primary-action { width: 100%; }.scan-hero-trust { flex-direction: column; gap: 8px; }.scan-empty-result { align-items: flex-start; flex-wrap: wrap; }.scan-empty-result .scan-card-link { margin-left: 56px; } }
+
+/* The desktop shell can leave less room for this page than the window width
+   suggests (sidebar + content padding). Breakpoints therefore follow the page
+   container, not the outer viewport. */
+.scan-repeat-page { width: 100%; min-width: 0; container: scan-workflow / inline-size; }
+.scan-repeat-grid, .scan-control-card, .scan-results { min-width: 0; }
+.scan-control-card .panel-head,
+.scan-control-card .panel-head > div,
+.scan-control-card .panel-copy,
+.scan-results .panel-head > div,
+.scan-empty-result > div:nth-child(2) { min-width: 0; }
+.interval-picker { flex-wrap: wrap; }
+.interval-picker span { min-width: 0; }
+.create-folder-row { min-width: 0; }
+.create-folder-row .secondary { justify-content: center; }
+.scan-empty-result { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; }
+.scan-empty-result .scan-card-link { margin-left: 0; white-space: nowrap; }
+.scan-results .panel-head { gap: 12px; }
+.scan-results .panel-head h3 { overflow-wrap: anywhere; }
+
+@container scan-workflow (max-width: 900px) {
+  .scan-repeat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scan-control-card:last-child { grid-column: 1 / -1; }
+  .scan-empty-result { grid-template-columns: 42px minmax(0, 1fr); }
+  .scan-empty-result .scan-card-link { grid-column: 2; justify-self: start; }
+}
+@container scan-workflow (max-width: 620px) {
+  .scan-repeat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scan-control-card:last-child { grid-column: 1 / -1; }
+  .scan-control-card { padding: 18px; }
+  .scan-control-card .panel-copy { min-height: 0; }
+  .interval-picker { gap: 7px; }
+  .interval-picker span { flex: 1 0 100%; }
+  .create-folder-row { flex-wrap: wrap; }
+  .create-folder-row input { flex-basis: 100%; }
+  .scan-empty-result { grid-template-columns: 42px minmax(0, 1fr); gap: 10px; align-items: start; }
+  .scan-empty-result .scan-card-link { grid-column: 2; justify-self: start; }
+  .scan-results { padding: 18px; }
+  .scan-results .panel-head { align-items: flex-start; }
+  .scan-result-meta { flex: 0 0 auto; max-width: 40%; white-space: normal; text-align: center; }
+}
 @media (prefers-reduced-motion: reduce) { .scan-orbit-ring, .scan-orbit-point-track, .scan-live-dot.is-active { animation: none; } }

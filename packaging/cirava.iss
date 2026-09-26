@@ -45,6 +45,7 @@ SetupLogging=yes
 [Files]
 Source: "{#AppExeSource}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "cirava.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "remove_google_credentials.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\Cirava"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\cirava.ico"
@@ -80,28 +81,25 @@ begin
   Result := True;
   RemoveSavedCredentials := MsgBox(
     'Also delete Cirava''s saved Google sign-in credentials?' + #13#10 + #13#10 +
-    'This removes saved access and refresh tokens and the optional OAuth client secret from this Windows account. Transfer history and preferences will be kept.' + #13#10 + #13#10 +
+    'This removes saved access and refresh tokens, the Google OAuth client ID, and the optional client secret from this Windows account. Transfer history and other settings will be kept.' + #13#10 + #13#10 +
     'Choose No to keep the credentials on this PC.',
     mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  CredentialsPath: String;
   CredentialsRemoved: Boolean;
+  ResultCode: Integer;
 begin
   if (CurUninstallStep = usUninstall) and RemoveSavedCredentials then begin
-    CredentialsPath := ExpandConstant('{userappdata}\Cirava');
-    CredentialsRemoved := True;
-
-    if FileExists(CredentialsPath + '\tokens.bin') then
-      CredentialsRemoved := DeleteFile(CredentialsPath + '\tokens.bin') and CredentialsRemoved;
-    if FileExists(CredentialsPath + '\client-credentials.bin') then
-      CredentialsRemoved := DeleteFile(CredentialsPath + '\client-credentials.bin') and CredentialsRemoved;
+    CredentialsRemoved := Exec(
+      ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\remove_google_credentials.ps1') + '"',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 
     if not CredentialsRemoved then
       MsgBox(
-        'Cirava could not remove one or more saved credential files. Close Cirava and remove tokens.bin or client-credentials.bin from your roaming AppData\Cirava folder.',
+        'Cirava could not remove all saved Google sign-in data. Close Cirava and retry, or remove the client_id from settings.json and delete tokens.bin and client-credentials.bin in your roaming AppData\Cirava folder.',
         mbError, MB_OK);
   end;
 end;

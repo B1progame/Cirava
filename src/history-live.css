@@ -1,0 +1,69 @@
+.history-day > span { display: block; margin: 22px 0 10px; color: #8997ad; font-size: 11px; }
+.page-heading button:disabled { opacity: .45; cursor: not-allowed; }
+.history-empty-state {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 110px;
+  padding: 20px;
+  border: 1px dashed rgba(132,158,208,.38);
+  border-radius: 16px;
+  background: rgba(245,248,255,.54);
+}
+.history-empty-mark {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 13px;
+  color: #31a996;
+  background: #e2f6f2;
+  font-size: 20px;
+}
+.history-empty-state > div { flex: 1; min-width: 0; }
+.history-empty-state strong { color: #36445e; font-size: 13px; }
+.history-empty-state p { margin: 5px 0 0; color: #8997ad; font-size: 11px; line-height: 1.5; }
+.history-empty-state button { flex: 0 0 auto; }
+.history-action-menu {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  width: 210px;
+  gap: 3px;
+  padding: 6px;
+  border: 1px solid rgba(195,209,235,.82);
+  border-radius: 13px;
+  background: rgba(251,253,255,.97);
+  box-shadow: 0 16px 42px rgba(40,58,99,.2);
+  backdrop-filter: blur(18px) saturate(140%);
+}
+.history-action-menu button {
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  color: #4a5973;
+  background: transparent;
+  font: 600 11px Manrope, sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+.history-action-menu button:hover:not(:disabled) { color: #526ed4; background: #edf2ff; }
+.history-action-menu button:disabled { color: #aab4c4; cursor: not-allowed; }
+.history-action-menu button.danger-action { color: #b55870; }
+.history-action-menu button.danger-action:hover:not(:disabled) { color: #fff; background: #c8667f; }
+.history-menu-status { padding: 9px 10px; color: #7888a3; font-size: 11px; line-height: 1.45; }
+html[data-theme='dark'] .history-empty-state { border-color: rgba(132,151,193,.34); background: rgba(25,32,47,.65); }
+html[data-theme='dark'] .history-empty-state strong { color: #e2e9f8; }
+html[data-theme='dark'] .history-empty-state p { color: #9ba9c2; }
+html[data-theme='dark'] .history-empty-mark { color: #7bd8c6; background: rgba(57,153,139,.18); }
+html[data-theme='dark'] .history-action-menu { border-color: #3d4d6c; background: rgba(29,37,54,.98); box-shadow: 0 18px 44px rgba(0,0,0,.38); }
+html[data-theme='dark'] .history-action-menu button { color: #d2dcf0; }
+html[data-theme='dark'] .history-action-menu button:hover:not(:disabled) { color: #fff; background: rgba(101,127,210,.22); }
+@media (max-width: 620px) {
+  .history-empty-state { align-items: flex-start; flex-wrap: wrap; padding: 16px; }
+  .history-empty-state > div { flex-basis: calc(100% - 58px); }
+  .history-empty-state button { margin-left: 54px; }
+}
+@media (prefers-reduced-motion: reduce) { .history-action-menu { backdrop-filter: none; } }

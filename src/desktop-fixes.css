@@ -9,7 +9,7 @@
    intentionally rooted so it resolves in both the browser and packaged app. */
 .brand-mark,
 .desktop-required-orb {
-  background-image: url('/cirava-logo.png');
+  background-image: url('/cirava-app-icon.png');
   background-size: cover;
   background-position: center;
 }

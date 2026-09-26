@@ -14,7 +14,6 @@
 
 <div align="center">
   <img src="docs/images/cirava-home.png" alt="Cirava Home: animated upload orb, Home navigation, and upload and download actions" width="100%">
-  <p><sub>Home · light appearance · animated upload orb</sub></p>
 </div>
 
 ## Move files. Keep your momentum.

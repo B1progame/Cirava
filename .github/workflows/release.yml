@@ -110,11 +110,17 @@ jobs:
           "releasebody=$releaseBodyPath" >> $env:GITHUB_OUTPUT
 
           $sha256 = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $appPath = 'packaging/output/Cirava.exe'
+          if (-not (Test-Path -LiteralPath $appPath)) { throw "Standalone app executable was not produced: $appPath" }
+          $appSha256 = (Get-FileHash -LiteralPath $appPath -Algorithm SHA256).Hash.ToLowerInvariant()
           $assetUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/$installerBase.exe"
+          $appAssetUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/Cirava.exe"
           $manifest = [ordered]@{
             version = $version
             url = $assetUrl
             sha256 = $sha256
+            appUrl = $appAssetUrl
+            appSha256 = $appSha256
             releaseNotes = [string[]]$releaseNotes
           }
           $json = ConvertTo-Json -InputObject $manifest -Depth 5
@@ -128,5 +134,6 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
           files: |
+            packaging/output/Cirava.exe
             packaging/output/${{ steps.build.outputs.installer }}
             packaging/output/update-manifest.json

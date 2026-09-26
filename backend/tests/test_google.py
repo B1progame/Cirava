@@ -8,10 +8,18 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from cirava_backend.drive_api import DriveApiClient, content_range, is_retryable_status
-from cirava_backend.oauth import OAuthConfig, OAuthSession, TokenManager, TokenStore
+from cirava_backend.oauth import OAuthConfig, OAuthSession, TokenManager, TokenStore, oauth_completion_page
 
 
 class GoogleProtocolTests(unittest.TestCase):
+    def test_oauth_completion_page_has_close_attempt_and_honest_fallback(self):
+        page = oauth_completion_page().decode("utf-8")
+
+        self.assertIn("window.close()", page)
+        self.assertIn("Return to Cirava to finish sign-in.", page)
+        self.assertIn("If this tab is still open, close it here.", page)
+        self.assertIn('id="completion-message"', page)
+
     def test_desktop_oauth_uses_os_selected_loopback_port(self):
         session = OAuthSession(OAuthConfig(client_id="desktop-client"), opener=lambda _: None)
         self.assertEqual(session.config.redirect_port, 0)
@@ -114,6 +122,20 @@ class GoogleProtocolTests(unittest.TestCase):
         self.assertEqual(query["corpora"], ["drive"])
         self.assertEqual(query["driveId"], ["drive-123"])
         self.assertEqual(query["includeItemsFromAllDrives"], ["true"])
+
+    def test_folder_name_resolution_uses_drive_search_and_pages_results(self):
+        client = DriveApiClient("token")
+        captured = []
+        pages = [b'{"nextPageToken":"next","files":[{"id":"one"}]}', b'{"files":[{"id":"two"}]}']
+        client._request = lambda url, **kwargs: captured.append(url) or (200, {}, pages[len(captured) - 1])
+        matches = client.find_folders_by_name("O'Brien", shared_drive_id="drive-1")
+        self.assertEqual(matches, [{"id": "one"}, {"id": "two"}])
+        first = parse_qs(urlparse(captured[0]).query)
+        second = parse_qs(urlparse(captured[1]).query)
+        self.assertIn("mimeType = 'application/vnd.google-apps.folder'", first["q"][0])
+        self.assertIn("O\\'Brien", first["q"][0])
+        self.assertEqual(first["driveId"], ["drive-1"])
+        self.assertEqual(second["pageToken"], ["next"])
 
     def test_workspace_export_uses_drive_export_endpoint(self):
         client = DriveApiClient("token")

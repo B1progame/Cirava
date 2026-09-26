@@ -82,6 +82,28 @@ class DriveApiClient:
             if not page_token:
                 return {"files": files}
 
+    def find_folders_by_name(self, name: str, *, shared_drive_id: str | None = None) -> list[dict]:
+        escaped = name.replace("\\", "\\\\").replace("'", "\\'")
+        clauses = [f"name = '{escaped}'", "mimeType = 'application/vnd.google-apps.folder'", "trashed = false"]
+        params = {
+            "q": " and ".join(clauses),
+            "fields": "nextPageToken,files(id,name,mimeType,parents)",
+            "pageSize": "1000",
+            "includeItemsFromAllDrives": "true",
+            "supportsAllDrives": "true",
+        }
+        if shared_drive_id:
+            params.update({"corpora": "drive", "driveId": shared_drive_id})
+        matches: list[dict] = []
+        while True:
+            _, _, data = self._request(f"{DRIVE_API}/files?{urllib.parse.urlencode(params)}")
+            page = json.loads(data.decode())
+            matches.extend(page.get("files", []))
+            token = page.get("nextPageToken")
+            if not token:
+                return matches
+            params["pageToken"] = token
+
     def create_upload_session(self, metadata: dict, total_size: int, parent_id: str | None = None) -> str:
         payload = dict(metadata)
         if parent_id:

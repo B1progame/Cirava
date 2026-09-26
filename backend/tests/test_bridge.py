@@ -72,6 +72,32 @@ class BridgeTests(unittest.TestCase):
             self.assertFalse(state["authenticated"])
             self.assertEqual(state["transfers"], [])
 
+    def test_startup_marks_orphaned_transfer_paused_and_preserves_resume_offset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory) / "app"
+            first = CiravaApi(data_dir, start_workers=False)
+            from cirava_backend.models import TransferRecord, TransferStatus
+            first.store.upsert(TransferRecord(
+                id="orphaned", direction="upload", filename="large.bin", local_path="large.bin",
+                size=4_000_000_000, bytes_transferred=512_000_000, speed_bps=2_000_000,
+                average_speed_bps=1_800_000, peak_speed_bps=3_000_000,
+                upload_session_url="session-is-preserved", status=TransferStatus.TRANSFERRING,
+            ))
+
+            restored_api = CiravaApi(data_dir, start_workers=False)
+            restored = restored_api.store.get("orphaned")
+
+            self.assertEqual(restored.status, TransferStatus.PAUSED)
+            self.assertEqual(restored.bytes_transferred, 512_000_000)
+            self.assertEqual(restored.speed_bps, 0)
+            self.assertEqual(restored.average_speed_bps, 1_800_000)
+            self.assertEqual(restored.peak_speed_bps, 3_000_000)
+            self.assertEqual(restored.upload_session_url, "session-is-preserved")
+            resumed = restored_api.resume_transfer("orphaned")
+            self.assertEqual(resumed["status"], "queued")
+            self.assertEqual(resumed["bytes_transferred"], 512_000_000)
+            self.assertEqual(resumed["upload_session_url"], "session-is-preserved")
+
     def test_google_configuration_requires_desktop_client_id_shape(self):
         with tempfile.TemporaryDirectory() as directory:
             api = CiravaApi(Path(directory))
@@ -94,6 +120,28 @@ class BridgeTests(unittest.TestCase):
             self.assertEqual(api.set_upload_concurrency(99), {"workers": 8})
             self.assertEqual(api.get_upload_concurrency(), {"workers": 8})
             self.assertEqual(api.set_upload_concurrency(0), {"workers": 1})
+
+    def test_single_large_upload_does_not_tune_cross_file_concurrency(self):
+        with tempfile.TemporaryDirectory() as directory:
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+            self.assertTrue(api._upload_gate.acquire(timeout=0.1))
+            api._upload_telemetry.last_throughput_bps = 900_000_000
+            for _ in range(5):
+                api._adjust_upload_concurrency()
+            self.assertEqual(api._upload_gate.workers, 4)
+            api._upload_gate.release()
+
+    def test_multi_file_batch_can_adjust_worker_limit_during_the_current_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+            self.assertTrue(api._upload_gate.acquire(timeout=0.1))
+            self.assertTrue(api._upload_gate.acquire(timeout=0.1))
+            api._upload_telemetry.last_throughput_bps = 500_000_000
+            for _ in range(4):
+                api._adjust_upload_concurrency()
+            self.assertEqual(api._upload_gate.workers, 5)
+            api._upload_gate.release()
+            api._upload_gate.release()
 
     def test_transfer_priority_and_manual_order_persist(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -144,14 +192,15 @@ class BridgeTests(unittest.TestCase):
             source.write_bytes(b"queued")
             api = CiravaApi(Path(directory) / "app", start_workers=False)
             record = api.create_upload(str(source))
+            api.set_upload_concurrency(4)
             for _ in range(4):
-                self.assertTrue(api._upload_slots.acquire(timeout=0.1))
+                self.assertTrue(api._upload_gate.acquire(timeout=0.1))
             worker = threading.Thread(target=api._upload_worker, args=(api.store.get(record["id"]), 256 * 1024))
             worker.start()
             api.cancel_transfer(record["id"])
             worker.join(timeout=1)
             for _ in range(4):
-                api._upload_slots.release()
+                api._upload_gate.release()
             self.assertFalse(worker.is_alive())
             self.assertEqual(api.store.get(record["id"]).status.value, "cancelled")
 

@@ -8,7 +8,7 @@ from io import BytesIO
 from unittest.mock import patch
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from cirava_backend.updater import UpdateManifest, Updater, is_newer_version
+from cirava_backend.updater import UpdateManifest, Updater, is_newer_version, requires_major_installer
 
 
 class UpdaterTests(unittest.TestCase):
@@ -44,6 +44,36 @@ class UpdaterTests(unittest.TestCase):
         self.assertTrue(is_newer_version("1.2.0", "1.1.9"))
         self.assertFalse(is_newer_version("1.2.0", "1.2.0"))
         self.assertFalse(is_newer_version("1.1.9", "1.2.0"))
+
+    def test_only_new_major_versions_require_the_installer(self):
+        self.assertFalse(requires_major_installer("1.10.1", "1.0.0"))
+        self.assertTrue(requires_major_installer("2.0.0", "1.10.1"))
+        self.assertFalse(requires_major_installer("1.0.0", "1.10.1"))
+
+    def test_manifest_can_publish_app_update_asset(self):
+        manifest = UpdateManifest.from_json(json.dumps({
+            "version": "1.10.1",
+            "url": "https://example.com/setup.exe",
+            "sha256": "a" * 64,
+            "appUrl": "https://example.com/Cirava.exe",
+            "appSha256": "b" * 64,
+        }))
+        self.assertEqual(manifest.app_url, "https://example.com/Cirava.exe")
+        self.assertEqual(manifest.app_sha256, "b" * 64)
+
+    def test_app_update_download_uses_app_asset_checksum(self):
+        payload = b"standalone-app"
+        manifest = UpdateManifest(version="1.10.1", url="https://example.invalid/setup.exe", sha256="a" * 64,
+                                 app_url="https://example.invalid/Cirava.exe", app_sha256=hashlib.sha256(payload).hexdigest())
+
+        class Response(BytesIO):
+            headers = {}
+            def geturl(self):
+                return "https://example.invalid/Cirava.exe"
+
+        with tempfile.TemporaryDirectory() as directory, patch("cirava_backend.updater.urllib.request.urlopen", return_value=Response(payload)):
+            staged = Updater(Path(directory)).download_app_and_stage(manifest)
+            self.assertEqual(staged.read_bytes(), payload)
 
     def test_stable_release_is_newer_than_same_version_prerelease(self):
         self.assertTrue(is_newer_version("1.0.0", "1.0.0-beta.2"))

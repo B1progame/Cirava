@@ -24,6 +24,21 @@ TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 
 
+def oauth_completion_page() -> bytes:
+    """Return the loopback callback page with a browser-safe close fallback."""
+    return b'''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Cirava sign-in</title>
+<style>body{font:16px system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;color:#263249;background:#f5f8ff}main{text-align:center;padding:32px;max-width:440px}p{line-height:1.55;color:#586783}button{margin-top:16px;padding:10px 16px;border:0;border-radius:9px;color:white;background:#617dea;cursor:pointer}</style>
+</head><body><main><strong>Google sign-in returned to Cirava.</strong><p id="completion-message" aria-live="polite">Return to Cirava. This tab will try to close; if it stays open, close it here.</p><button type="button" onclick="window.close()">Close tab</button></main>
+<script>
+window.setTimeout(function(){window.close();},350);
+window.setTimeout(function(){
+  var message=document.getElementById('completion-message');
+  if(message) message.textContent='Return to Cirava to finish sign-in. If this tab is still open, close it here.';
+},1200);
+</script></body></html>'''
+
+
 @dataclass(frozen=True)
 class OAuthConfig:
     client_id: str
@@ -77,15 +92,9 @@ class OAuthSession:
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
-                # The callback is opened in a dedicated browser tab. Close it
-                # after Google has redirected back to the local OAuth listener.
-                # The visible fallback is useful in browsers that refuse to
-                # close a tab that was not opened by script.
-                self.wfile.write(b'''<!doctype html>
-<html><head><meta charset="utf-8"><title>Cirava sign-in complete</title>
-<style>body{font:16px system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;color:#263249;background:#f5f8ff}main{text-align:center;padding:32px}button{margin-top:16px;padding:10px 16px;border:0;border-radius:9px;color:white;background:#617dea;cursor:pointer}</style>
-</head><body><main><strong>Cirava is connected to Google.</strong><p>This tab will close automatically.</p><button onclick="window.close()">Close tab</button></main>
-<script>window.setTimeout(function(){window.close();},350);</script></body></html>''')
+                # System-browser tabs may not be script-closable. Attempt it,
+                # but provide a truthful instruction if the browser blocks it.
+                self.wfile.write(oauth_completion_page())
 
             def log_message(self, *_args):
                 return

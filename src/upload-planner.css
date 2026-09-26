@@ -1,0 +1,225 @@
+.cirava-direct-upload-backdrop {
+  z-index: 1200;
+  padding: 20px;
+  background: rgba(20, 35, 56, .32);
+  backdrop-filter: blur(18px) saturate(125%);
+}
+
+.cirava-direct-upload-sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(940px, calc(100vw - 40px));
+  max-height: min(740px, calc(100dvh - 40px));
+  overflow: auto;
+  padding: clamp(22px, 3vw, 34px);
+  border: 1px solid rgba(137, 167, 221, .48);
+  border-radius: 28px;
+  background:
+    radial-gradient(ellipse at 92% 8%, rgba(91, 205, 194, .12), transparent 34%),
+    linear-gradient(145deg, rgba(250, 252, 255, .98), rgba(239, 246, 255, .97) 65%, rgba(246, 244, 255, .98));
+  box-shadow: 0 32px 100px rgba(42, 68, 119, .28), inset 0 1px 0 rgba(255, 255, 255, .96);
+  scrollbar-color: rgba(119, 145, 185, .35) transparent;
+}
+
+.cirava-direct-upload-header {
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.cirava-direct-upload-header .eyebrow { color: #7387ab; }
+.cirava-upload-secure-label { color: #8292ad; font-weight: 600; letter-spacing: .02em; }
+.cirava-direct-upload-header h2 { font-size: clamp(27px, 3.5vw, 38px); letter-spacing: -.055em; line-height: 1.06; }
+.cirava-direct-upload-header p { max-width: 58ch; margin-top: 9px; font-size: 13px; line-height: 1.55; }
+.cirava-direct-upload-close { width: 40px; height: 40px; border-radius: 13px; }
+
+.cirava-upload-stepper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+  margin: 0 0 17px;
+  color: #8c9bb4;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.cirava-upload-stepper span { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.cirava-upload-stepper b { display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid rgba(128, 152, 195, .3); border-radius: 8px; background: rgba(255,255,255,.55); color: #8294b2; font-size: 9px; font-variant-numeric: tabular-nums; }
+.cirava-upload-stepper .is-current { color: #526ed7; }
+.cirava-upload-stepper .is-current b { border-color: rgba(97, 126, 231, .34); background: rgba(101, 131, 238, .12); color: #5673df; }
+.cirava-upload-stepper i { width: clamp(20px, 6vw, 64px); height: 1px; background: linear-gradient(90deg, rgba(125, 148, 192, .32), rgba(125, 148, 192, .12)); }
+
+.cirava-direct-upload-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, .92fr);
+  gap: 14px;
+  min-height: 280px;
+}
+
+.cirava-upload-step {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 19px;
+  border: 1px solid rgba(132, 160, 211, .36);
+  border-radius: 21px;
+  background: rgba(255, 255, 255, .57);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.84), 0 10px 28px rgba(76, 103, 159, .045);
+}
+
+.cirava-upload-step-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
+.cirava-upload-step-head .mini-label { color: #8394b0; font-size: 9px; letter-spacing: .12em; }
+.cirava-upload-step-caption { color: #9aa8be; font-size: 10px; }
+
+.cirava-upload-selection {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  min-height: 106px;
+  padding: 15px;
+  border: 1px dashed rgba(124, 151, 205, .36);
+  border-radius: 16px;
+  background: linear-gradient(125deg, rgba(246,249,255,.85), rgba(240,249,249,.65));
+}
+
+.cirava-upload-selection[data-has-selection='true'] { border-style: solid; border-color: rgba(73, 176, 161, .32); background: linear-gradient(125deg, rgba(234,249,247,.9), rgba(239,245,255,.82)); }
+.cirava-upload-selection[data-kind='test'] { border-color: rgba(102, 127, 226, .38); background: linear-gradient(125deg, rgba(237,241,255,.94), rgba(232,249,248,.82)); }
+.cirava-upload-selection-mark { display: grid; flex: 0 0 39px; width: 39px; height: 39px; place-items: center; border: 1px solid rgba(99, 128, 223, .15); border-radius: 12px; background: rgba(99, 128, 223, .1); color: #637fe0; }
+.cirava-upload-selection-mark svg { width: 20px; height: 20px; }
+.cirava-upload-selection[data-has-selection='true'] .cirava-upload-selection-mark { border-color: rgba(47, 177, 157, .15); background: rgba(53, 190, 168, .12); color: #27a995; }
+.cirava-upload-selection-copy { display: grid; min-width: 0; gap: 4px; padding-top: 1px; }
+.cirava-upload-selection-copy strong { overflow: hidden; color: #27364e; font-size: 14px; font-weight: 700; text-overflow: ellipsis; }
+.cirava-upload-selection-copy small { margin: 0; color: #8291aa; font-size: 11px; line-height: 1.45; }
+.cirava-upload-selected-names { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; }
+.cirava-upload-selected-names:empty { display: none; }
+.cirava-upload-selected-names span { max-width: 100%; overflow: hidden; padding: 3px 7px; border-radius: 6px; background: rgba(255,255,255,.66); color: #647692; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+
+.cirava-upload-actions { display: flex; flex-wrap: wrap; gap: 9px; margin: 13px 0 0; }
+.cirava-upload-actions .cirava-upload-pick-button { min-height: 41px; padding: 9px 14px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+.cirava-upload-actions .cirava-upload-pick-button.primary { color: #fff; background: linear-gradient(105deg, #647be8, #5c9ed9); box-shadow: 0 7px 16px rgba(87, 119, 218, .19); }
+.cirava-upload-actions .cirava-upload-pick-button.secondary { color: #536b91; background: rgba(255,255,255,.72); }
+
+.cirava-upload-test-choice {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 55px;
+  margin-top: auto;
+  padding: 10px 12px;
+  border: 1px solid rgba(132, 157, 207, .23);
+  border-radius: 14px;
+  background: rgba(246, 249, 255, .6);
+  color: #536684;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, transform .18s ease;
+}
+.cirava-upload-test-choice:hover { transform: translateY(-1px); border-color: rgba(99, 127, 223, .42); background: rgba(255,255,255,.92); }
+.cirava-upload-test-choice.is-selected { border-color: rgba(92, 122, 226, .52); background: rgba(233, 239, 255, .82); }
+.cirava-upload-test-mark { display: grid; flex: 0 0 31px; width: 31px; height: 31px; place-items: center; border-radius: 10px; background: rgba(100, 128, 229, .12); color: #637fdf; font-size: 17px; }
+.cirava-upload-test-choice > span:nth-child(2) { display: grid; min-width: 0; gap: 3px; }
+.cirava-upload-test-choice strong { color: #435674; font-size: 11px; font-weight: 700; }
+.cirava-upload-test-choice small { color: #8a98ae; font-size: 9px; line-height: 1.35; }
+.cirava-upload-test-arrow { margin-left: auto; color: #93a4c3; font-size: 19px; }
+
+.cirava-upload-destination {
+  gap: 12px;
+  min-height: 76px;
+  padding: 11px 13px;
+  border-color: rgba(114, 146, 214, .39);
+  border-radius: 15px;
+  background: linear-gradient(112deg, rgba(246,249,255,.94), rgba(238,248,249,.78));
+  color: #556f9b;
+}
+.cirava-upload-destination-mark { display: grid; flex: 0 0 42px; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: rgba(98, 128, 231, .1); color: #637fe0; }
+.cirava-upload-destination-mark svg { width: 23px; height: 23px; }
+.cirava-upload-destination-copy { display: grid; min-width: 0; gap: 3px; }
+.cirava-upload-destination-copy small { margin: 0; color: #8a9ab5; font-size: 9px; }
+.cirava-upload-destination-copy strong { overflow: hidden; color: #394e72; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.cirava-upload-destination-copy > span { color: #8b9ab2; font-size: 10px; }
+.cirava-upload-destination-arrow { margin-left: auto; color: #6682d9; font-size: 21px; }
+
+.cirava-upload-route { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 102px; margin-top: auto; padding: 16px 12px 7px; }
+.cirava-upload-route-node { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.cirava-upload-route-icon { display: grid; flex: 0 0 35px; width: 35px; height: 35px; place-items: center; border: 1px solid rgba(105, 132, 214, .18); border-radius: 11px; background: rgba(102, 131, 229, .09); color: #667fd9; }
+.cirava-upload-route-icon.is-cloud { border-color: rgba(51, 181, 163, .2); background: rgba(52, 187, 166, .1); color: #2da998; }
+.cirava-upload-route-icon svg { width: 20px; height: 20px; }
+.cirava-upload-route-node > span:last-child { display: grid; gap: 3px; }
+.cirava-upload-route-node strong { color: #586d8b; font-size: 10px; white-space: nowrap; }
+.cirava-upload-route-node small { color: #91a0b6; font-size: 9px; }
+.cirava-upload-route-line { position: relative; flex: 1; height: 1px; min-width: 18px; background: linear-gradient(90deg, rgba(101, 128, 220, .32), rgba(55, 181, 166, .4)); }
+.cirava-upload-route-line::after { position: absolute; top: -3px; right: 0; width: 6px; height: 6px; border-top: 1px solid #68a9b7; border-right: 1px solid #68a9b7; content: ''; transform: rotate(45deg); }
+.cirava-upload-route-line i { position: absolute; top: -3px; left: 4px; width: 7px; height: 7px; border-radius: 50%; background: #647fe0; box-shadow: 0 0 0 4px rgba(100, 127, 224, .11); animation: cirava-upload-route-travel 2.8s ease-in-out infinite; }
+.cirava-upload-route-note { margin: 0; padding: 10px 11px; border-radius: 10px; background: rgba(255,255,255,.44); color: #8797b0; font-size: 10px; line-height: 1.45; }
+
+.cirava-upload-folders { max-height: 190px; margin-top: 10px; padding: 10px; border-color: rgba(128, 154, 204, .25); border-radius: 14px; background: rgba(255,255,255,.58); }
+.cirava-upload-folder-current { background: rgba(232, 240, 255, .76); }
+
+.cirava-upload-footer {
+  align-items: center;
+  margin-top: 17px;
+  padding-top: 15px;
+  border-top-color: rgba(129, 154, 199, .23);
+}
+.cirava-upload-footer-copy { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.cirava-upload-footer-copy > span:last-child { display: grid; gap: 3px; min-width: 0; }
+.cirava-upload-status-dot { flex: 0 0 9px; width: 9px; height: 9px; border-radius: 50%; background: #b4bfd0; box-shadow: 0 0 0 4px rgba(151, 166, 190, .1); }
+.cirava-upload-footer-copy strong { color: #526581; font-size: 11px; font-weight: 700; }
+.cirava-upload-status { min-height: 0; margin: 0; color: #8a99b1; font-size: 10px; }
+.cirava-upload-status[data-error='true'] { color: #b5475a; }
+.cirava-upload-footer-action { display: grid; justify-items: end; gap: 5px; }
+.cirava-upload-footer button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 180px; min-height: 47px; padding: 10px 17px; border: 1px solid transparent; border-radius: 14px; color: white; background: linear-gradient(105deg, #627ce7, #4aaec0); box-shadow: 0 9px 20px rgba(75, 117, 210, .2); font-size: 12px; }
+.cirava-upload-footer button:disabled { background: linear-gradient(105deg, #9cace3, #9fd8d3); box-shadow: none; opacity: .64; }
+.cirava-upload-footer-action > small { color: #8e9db4; font-size: 9px; }
+.cirava-upload-footer .hold-confirm-prompt { opacity: .8; }
+.cirava-upload-footer .hold-to-confirm[data-holding='true'] { box-shadow: 0 0 0 3px rgba(97, 126, 231, .17), 0 10px 24px rgba(65, 111, 200, .23); }
+
+@keyframes cirava-upload-route-travel {
+  0%, 12% { left: 4px; opacity: .45; }
+  60% { opacity: 1; }
+  88%, 100% { left: calc(100% - 10px); opacity: .45; }
+}
+
+html[data-theme='dark'] .cirava-direct-upload-sheet { border-color: rgba(131, 153, 194, .42); background: radial-gradient(ellipse at 92% 8%, rgba(50, 157, 150, .1), transparent 34%), linear-gradient(145deg, rgba(39, 46, 57, .99), rgba(31, 38, 50, .99)); }
+html[data-theme='dark'] .cirava-upload-step { border-color: rgba(126, 149, 192, .3); background: rgba(51, 59, 72, .7); }
+html[data-theme='dark'] .cirava-upload-selection { border-color: rgba(126, 149, 192, .35); background: rgba(38, 46, 59, .7); }
+html[data-theme='dark'] .cirava-upload-selection[data-has-selection='true'] { border-color: rgba(71, 177, 161, .38); background: rgba(31, 76, 75, .42); }
+html[data-theme='dark'] .cirava-upload-selection-copy strong,
+html[data-theme='dark'] .cirava-upload-test-choice strong,
+html[data-theme='dark'] .cirava-upload-destination-copy strong,
+html[data-theme='dark'] .cirava-upload-route-node strong,
+html[data-theme='dark'] .cirava-upload-footer-copy strong { color: #e0e8f8; }
+html[data-theme='dark'] .cirava-upload-test-choice { border-color: rgba(126, 149, 192, .3); background: rgba(43, 51, 65, .8); }
+html[data-theme='dark'] .cirava-upload-destination { border-color: rgba(126, 149, 192, .4); background: rgba(44, 55, 71, .9); }
+html[data-theme='dark'] .cirava-upload-route-note { background: rgba(39, 47, 59, .72); }
+
+@media (max-width: 700px) {
+  .cirava-direct-upload-backdrop { place-items: end center; padding: 8px; }
+  .cirava-direct-upload-sheet { width: 100%; max-height: calc(100dvh - 16px); padding: 20px; border-radius: 23px 23px 17px 17px; }
+  .cirava-direct-upload-grid { grid-template-columns: 1fr; min-height: 0; }
+  .cirava-upload-step { padding: 15px; }
+  .cirava-upload-test-choice { margin-top: 14px; }
+  .cirava-upload-route { min-height: 78px; margin-top: 8px; }
+  .cirava-upload-footer { align-items: stretch; flex-direction: column; }
+  .cirava-upload-footer-action { justify-items: stretch; }
+  .cirava-upload-footer button { width: 100%; }
+  .cirava-upload-footer-action > small { text-align: center; }
+}
+
+@media (max-height: 640px) and (min-width: 701px) {
+  .cirava-direct-upload-sheet { padding: 20px 26px; }
+  .cirava-direct-upload-header { margin-bottom: 10px; }
+  .cirava-direct-upload-header p { margin-top: 6px; }
+  .cirava-upload-stepper { min-height: 30px; margin-bottom: 10px; }
+  .cirava-direct-upload-grid { min-height: 235px; }
+  .cirava-upload-step { padding: 14px; }
+  .cirava-upload-selection { min-height: 84px; padding: 11px; }
+  .cirava-upload-footer { margin-top: 11px; padding-top: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cirava-upload-route-line i { animation: none; }
+  .cirava-upload-test-choice, .cirava-upload-actions button, .cirava-upload-destination { transition: none; }
+}

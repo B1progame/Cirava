@@ -9,7 +9,7 @@
   <body>
     <div id="root">
       <div id="boot-screen" role="status" aria-live="polite">
-        <div class="boot-orb" aria-hidden="true"><video autoplay muted loop playsinline preload="auto"><source src="./cirava-startup.mp4" type="video/mp4" /></video><img src="./cirava-logo.svg" alt="" /></div>
+        <div class="boot-orb" aria-hidden="true"><img src="/cirava-logo.png" alt="" /></div>
         <strong>Cirava</strong>
         <span>Preparing your transfer workspace…</span>
       </div>
@@ -19,7 +19,7 @@
       #boot-screen strong { font-size: 28px; letter-spacing: -0.04em; }
       #boot-screen span { color: #71809c; }
       .boot-orb { position: relative; width: 56px; height: 56px; margin: 0 auto 6px; display: grid; place-items: center; overflow: hidden; border-radius: 18px; background: #ffffff; box-shadow: 0 16px 35px #6d8cff42; animation: cirava-boot-pulse 1.4s ease-in-out infinite; }
-      .boot-orb video { position: absolute; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }\n      .boot-orb img { display: none; width: 100%; height: 100%; object-fit: cover; }
+      .boot-orb img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
       @keyframes cirava-boot-pulse { 50% { transform: translateY(-4px) scale(1.04); box-shadow: 0 20px 42px #6d8cff62; } }
     </style>
     <script>
@@ -29,6 +29,10 @@
           load_preferences: async () => ({}),
           save_preferences: async () => ({ ok: true, saved: [] }),
           get_account_profile: async () => ({ name: 'Inspection account', email: 'inspection@cirava.local', photoUrl: '', driveName: 'My Drive' }),
+          list_drive_files: async () => ({ files: [] }),
+          create_drive_folder: async (name, parent_id = 'root') => ({ id: `inspect-${Date.now()}`, name, parent_id }),
+          create_drive_file: async (name, parent_id = 'root', mime_type = 'text/plain') => ({ id: `inspect-${Date.now()}`, name, parent_id, mime_type }),
+          trash_drive_file: async (id) => ({ id, status: 'trashed' }),
           list_transfers: async () => [],
           get_transfer_limit: async () => ({ mbps: 0 }),
           get_upload_concurrency: async () => ({ workers: 4 }),
