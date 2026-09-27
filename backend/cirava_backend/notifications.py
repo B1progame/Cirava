@@ -77,6 +77,20 @@ class TrayNotifier:
         except Exception:
             return
 
+    def _register_icon_if_visible(self, icon: Any) -> bool:
+        """Publish readiness only after WinForms reports the shell icon visible."""
+        try:
+            visible = bool(icon.Visible)
+        except Exception:
+            visible = False
+        if not visible:
+            return False
+        with self._lock:
+            self._notify_icon = icon
+            self._registered = True
+        self._ready.set()
+        return True
+
     def stop(self) -> None:
         self._stop_requested.set()
         thread = self._thread
@@ -233,6 +247,35 @@ class TrayNotifier:
 
             timer = Timer()
             timer.Interval = 200
+            registration_attempts = 0
+
+            def ensure_icon_registered(_sender: object, _event: object) -> None:
+                nonlocal registration_attempts
+                if self._registered:
+                    return
+                registration_attempts += 1
+                try:
+                    # NotifyIcon creates its shell handle on the WinForms STA
+                    # message loop. Checking Visible before Application.Run()
+                    # can falsely report a registration failure.
+                    icon.Visible = True
+                    if self._register_icon_if_visible(icon):
+                        return
+                except Exception:
+                    pass
+                if registration_attempts < 20:
+                    return
+                error = RuntimeError("Windows did not show Cirava's notification-area icon after 20 message-loop retries")
+                self._error = str(error)
+                try:
+                    log_path = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Cirava" / "tray.log"
+                    log_path.parent.mkdir(parents=True, exist_ok=True)
+                    log_path.write_text(str(error), encoding="utf-8")
+                except Exception:
+                    pass
+                self._ready.set()
+                timer.Stop()
+                Application.ExitThread()
 
             def stop_message_loop(_sender: object, _event: object) -> None:
                 if not self._stop_requested.is_set():
@@ -242,15 +285,10 @@ class TrayNotifier:
                 Application.ExitThread()
 
             timer.Tick += stop_message_loop
-            icon.Visible = True
-            if not icon.Visible:
-                raise RuntimeError("Windows did not accept Cirava's notification-area icon")
+            timer.Tick += ensure_icon_registered
             with self._lock:
-                self._notify_icon = icon
                 self._notify_timer = timer
-                self._registered = True
             timer.Start()
-            self._ready.set()
             Application.Run()
         except Exception as error:
             self._error = str(error)

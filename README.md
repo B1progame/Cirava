@@ -1,12 +1,12 @@
 <div align="center">
-  <img src="public/cirava-logo.png" alt="Cirava" width="88" height="88">
+  <img src="https://raw.githubusercontent.com/B1progame/Cirava/main/public/cirava-logo.png" alt="Cirava" width="88" height="88">
   <h1>Cirava</h1>
   <p><strong>Your files, in motion.</strong><br>
   A Windows desktop client for moving files through Google Drive.</p>
   <p>
-    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/STABLE-v1.2.0-6079ed?style=for-the-badge" alt="Latest stable release: v1.2.0"></a>
+    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/STABLE-v1.2.1-6079ed?style=for-the-badge" alt="Latest stable release: v1.2.1"></a>
     <img src="https://img.shields.io/badge/platform-Windows-2aa995?style=for-the-badge" alt="Windows desktop app">
-    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/download-v1.2.0-28344d?style=for-the-badge" alt="Download Cirava 1.2.0"></a>
+    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/download-v1.2.1-28344d?style=for-the-badge" alt="Download Cirava 1.2.1"></a>
   </p>
 </div>
 
@@ -24,13 +24,13 @@ You can close the window while work is running. Cirava stays in the Windows noti
 
 ## Download and install
 
-Get the latest build from [GitHub Releases](https://github.com/B1progame/Cirava/releases/latest). The v1.2.0 release includes:
+Get the latest build from [GitHub Releases](https://github.com/B1progame/Cirava/releases/latest). The v1.2.1 release includes:
 
-- `Cirava-Setup-1.2.0.exe` for the Windows installer.
+- `Cirava-Setup-1.2.1.exe` for the Windows installer.
 - `Cirava.exe` for the standalone app, with no installer.
 - `update-manifest.json` for checksum-verified in-app updates.
 
-This release improves large Drive transfers with streamed byte-range downloads, reusable HTTP connections, and throughput-aware parallelism. Small uploads use a single multipart request; larger uploads remain resumable. The transfer center also shows elapsed time and provides clearer queue notifications.
+This release makes Drive create actions easier to use with an in-app naming dialog, improves pause and cancel responsiveness for downloads, hardens ranged-download validation, and makes tray controls wait for a ready Windows message loop. It also corrects the Cirava logo URL used on GitHub.
 
 After launching Cirava, connect a Google account using a Desktop OAuth client. This is a one-time setup for the Cloud project and client ID. Follow the [step-by-step Google OAuth setup](GOOGLE_SETUP.md), then use the [wiki](https://github.com/B1progame/Cirava/wiki) for everyday tasks and troubleshooting.
 

@@ -5,6 +5,7 @@ import './upload-planner.css';
 import './workflows/scan-repeat/scan-repeat.css';
 import './transfer-journey.css';
 import './drive-multiselect.css';
+import './drive-create-dialog.css';
 import './history-live.css';
 import './transfer-recovery.css';
 import './offline-recovery.css';
@@ -24,6 +25,7 @@ import { bindTransferJourney, renderTransferJourney } from './transfer-journey.j
 import { enhanceDriveMultiSelect, toggleDriveRowSelection } from './drive-multiselect.js';
 import { installDriveTrash } from './drive-trash.js';
 import { findDriveFileByName } from './drive-item-lookup.js';
+import { installDriveCreateDialog } from './drive-create-dialog.js';
 import { enhanceTransferHistory } from './history-live.js';
 import { enhanceTransferRecovery } from './transfer-recovery.js';
 import { getReleasePresentation } from './release-channel.js';
@@ -1304,7 +1306,7 @@ requestAnimationFrame(ciravaHomeOrbit);
 /* Keep release labels and About details aligned with the channel embedded at build time. */
 function ciravaSyncCandidateVersion() {
   const env = (import.meta as any).env || {};
-const version = env.VITE_CIRAVA_APP_VERSION || env.VITE_CIRAVA_VERSION || '1.2.0';
+const version = env.VITE_CIRAVA_APP_VERSION || env.VITE_CIRAVA_VERSION || '1.2.1';
   const presentation = getReleasePresentation(version, env.VITE_CIRAVA_APP_CHANNEL);
   document.querySelectorAll<HTMLElement>('.about-fact').forEach((fact) => {
     if (fact.querySelector('span')?.textContent?.trim() === 'Version') {
@@ -1330,7 +1332,7 @@ function ciravaUpdateScreen() {
   document.documentElement.dataset.ciravaUpdateBound = 'true';
   const env = (import.meta as any).env || {};
   const manifestUrls = getUpdateFeeds(env);
-  const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.2.0';
+  const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.2.1';
   const initialChannel = env.VITE_CIRAVA_APP_CHANNEL === 'beta' ? 'beta' : 'release';
   const channelMenuState = createUpdateChannelMenuState(initialChannel);
   let selectedChannel = channelMenuState.selected;
@@ -1745,3 +1747,4 @@ const ciravaEnhancementObserver = new MutationObserver(() => {
 });
 ciravaEnhancementObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
 requestAnimationFrame(installDriveTrash);
+installDriveCreateDialog();

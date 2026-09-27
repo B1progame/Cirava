@@ -16,6 +16,8 @@ Zero bytes per second at startup does not necessarily mean a transfer is stuck. 
 
 Use the controls in the transfer panel to pause or resume uploads and downloads. Cancel stops the selected transfer work; it does not delete the local source file or remove an already uploaded Drive file. A cancelled item can be retried later from Transfers when the app offers that action.
 
+Download controls take effect while data is streaming, between received blocks. If a download is paused, its live speed drops to zero until you resume. Cancelling stops the transfer; it does not remove a partially downloaded file unless Cirava's cleanup for that transfer succeeds.
+
 ## Keep transfers running in the background
 
 Closing the window hides Cirava in the Windows notification area while it remains running. If a transfer is active, Cirava shows a notice that it continues in the background. Open the Cirava tray icon to reopen the app.

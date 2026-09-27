@@ -1,0 +1,51 @@
+.cirava-folder-name-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(35, 46, 68, .38);
+  backdrop-filter: blur(8px);
+  animation: cirava-folder-backdrop-in 160ms ease-out both;
+}
+
+.cirava-folder-name-dialog {
+  width: min(100%, 450px);
+  padding: 25px;
+  border: 1px solid rgba(203, 216, 239, .92);
+  border-radius: 22px;
+  background: linear-gradient(145deg, rgba(255,255,255,.98), rgba(243,248,255,.97) 62%, rgba(246,244,255,.97));
+  box-shadow: 0 28px 90px rgba(33, 48, 81, .28), inset 0 1px 0 rgba(255,255,255,.95);
+  color: #26344e;
+  animation: cirava-folder-dialog-in 200ms cubic-bezier(.2,.75,.25,1) both;
+}
+
+.cirava-folder-name-header { display: flex; align-items: center; gap: 13px; }
+.cirava-folder-name-icon { display: grid; place-items: center; width: 46px; height: 46px; flex: 0 0 46px; border: 1px solid #d5e0ff; border-radius: 15px; background: linear-gradient(145deg,#edf2ff,#e4f8f6); color: #627ef0; box-shadow: 0 8px 20px rgba(97,124,220,.12); }
+.cirava-folder-name-icon svg { width: 22px; height: 22px; }
+.cirava-folder-name-header h2 { margin: 4px 0 0; color: #26344e; font: 750 21px/1.25 Manrope, 'DM Sans', sans-serif; letter-spacing: -.035em; }
+.cirava-folder-name-kicker { color: #8493b0; font: 750 9px/1.3 Manrope, sans-serif; letter-spacing: .13em; }
+.cirava-folder-name-close { display: grid; place-items: center; width: 34px; height: 34px; margin-left: auto; border: 1px solid #d8e1ef; border-radius: 11px; background: rgba(255,255,255,.72); color: #73819b; font-size: 21px; }
+.cirava-folder-name-close:hover { border-color: #b7c7e8; background: white; color: #435a92; }
+.cirava-folder-name-description { margin: 17px 0 20px; color: #7988a2; font-size: 12px; line-height: 1.6; }
+.cirava-folder-name-form { display: grid; gap: 8px; }
+.cirava-folder-name-form label { color: #53637f; font-size: 11px; font-weight: 700; }
+.cirava-folder-name-input { width: 100%; min-height: 46px; padding: 0 13px; border: 1px solid #d6e0ef; border-radius: 12px; outline: none; background: rgba(255,255,255,.86); color: #2d3a52; font: 500 13px 'DM Sans', sans-serif; transition: border-color 160ms, box-shadow 160ms; }
+.cirava-folder-name-input::placeholder { color: #a1acc0; }
+.cirava-folder-name-input:focus { border-color: #8ca4f5; box-shadow: 0 0 0 4px rgba(105,132,237,.13); }
+.cirava-folder-name-error { min-height: 15px; color: #bd5369; font-size: 10px; }
+.cirava-folder-name-footer { display: flex; justify-content: flex-end; gap: 9px; margin-top: 11px; padding-top: 16px; border-top: 1px solid rgba(218,227,241,.8); }
+.cirava-folder-name-footer button { min-height: 40px; padding: 0 16px; border-radius: 11px; font-size: 11px; font-weight: 700; }
+.cirava-folder-name-footer button:disabled { cursor: wait; opacity: .7; }
+
+html[data-theme='dark'] .cirava-folder-name-dialog { border-color: #455674; background: linear-gradient(145deg,rgba(36,48,68,.99),rgba(28,40,60,.99)); color: #e5ebf5; }
+html[data-theme='dark'] .cirava-folder-name-header h2 { color: #edf2fb; }
+html[data-theme='dark'] .cirava-folder-name-description, html[data-theme='dark'] .cirava-folder-name-form label { color: #aebbd0; }
+html[data-theme='dark'] .cirava-folder-name-input { border-color: #52627d; background: #202e45; color: #edf2fb; }
+html[data-theme='dark'] .cirava-folder-name-close { border-color: #52627d; background: #26364e; color: #ced8e9; }
+html[data-theme='dark'] .cirava-folder-name-footer { border-color: #455674; }
+
+@keyframes cirava-folder-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cirava-folder-dialog-in { from { opacity: 0; transform: translateY(9px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@media (prefers-reduced-motion: reduce) { .cirava-folder-name-backdrop, .cirava-folder-name-dialog { animation: none; } }

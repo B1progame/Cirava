@@ -303,6 +303,8 @@ class SegmentedDownloader:
                             for block in payload:
                                 if not block:
                                     continue
+                                if not self._should_continue():
+                                    raise TransferStopped()
                                 if cursor + len(block) > end + 1:
                                     raise IOError(f"range {start}-{end} returned more than {end - start + 1} bytes")
                                 write_started = time.monotonic()

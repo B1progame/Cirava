@@ -88,6 +88,38 @@ class GoogleProtocolTests(unittest.TestCase):
         self.assertEqual(b"".join(chunks), payload)
         self.assertLessEqual(max(map(len, chunks)), 64 * 1024)
 
+    def test_drive_media_range_rejects_server_that_ignores_range(self):
+        class Response:
+            status_code = 200
+            headers = {}
+
+            def iter_content(self, chunk_size):
+                yield b"full file"
+
+            def close(self):
+                pass
+
+        client = DriveApiClient("test-token")
+        with patch("cirava_backend.drive_api.requests.Session.get", return_value=Response()):
+            with self.assertRaisesRegex(IOError, "ignored the requested byte range"):
+                list(client.iter_range("drive-file", 4, 7))
+
+    def test_drive_media_range_rejects_mismatched_content_range(self):
+        class Response:
+            status_code = 206
+            headers = {"Content-Range": "bytes 0-3/8"}
+
+            def iter_content(self, chunk_size):
+                yield b"data"
+
+            def close(self):
+                pass
+
+        client = DriveApiClient("test-token")
+        with patch("cirava_backend.drive_api.requests.Session.get", return_value=Response()):
+            with self.assertRaisesRegex(IOError, "unexpected Content-Range"):
+                list(client.iter_range("drive-file", 4, 7))
+
     def test_parallel_upload_workers_keep_their_created_drive_ids_separate(self):
         client = DriveApiClient("test-token")
         both_set = threading.Barrier(2)

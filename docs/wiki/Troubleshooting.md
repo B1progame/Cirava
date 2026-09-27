@@ -24,9 +24,11 @@ At startup, Cirava may still be creating a Drive session. A paused transfer also
 
 Check that the destination folder has free space and that the signed-in account can download the item. Folder downloads are ZIP archives. Google Docs, Sheets, and Slides need an export format; they are not ordinary binary downloads.
 
+If pause or cancel seems delayed, confirm the transfer status changed to **Paused** or **Cancelled**. Cirava now checks for those requests between streamed download blocks. A Drive server that does not honor a requested byte range is rejected rather than being treated as a valid partial response; retry the download, and check **Diagnostics** if the error persists.
+
 ## The app asks me to run the installer for an update
 
-Cirava uses the installer when the major version increases, such as 1.x to 2.x. Updates within the same major version use the in-app app update, such as 1.1.3 to 1.2.0.
+Cirava uses the installer when the major version increases, such as 1.x to 2.x. Updates within the same major version use the in-app app update, such as 1.2.0 to 1.2.1.
 
 ## The release-channel menu stays open
 

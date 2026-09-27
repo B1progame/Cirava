@@ -1,26 +1,33 @@
 const ROUTE_PATH = 'M 122 100 C 220 27 317 27 450 100 C 583 173 680 173 778 100';
 const QUEUED_STATUSES = new Set(['queued', 'preparing', 'transferring', 'paused', 'waiting-for-network', 'rate-limited', 'verifying']);
-const CANCELLABLE_UPLOAD_STATUSES = new Set(['queued', 'preparing', 'transferring', 'paused', 'waiting-for-network', 'rate-limited']);
-const PAUSABLE_UPLOAD_STATUSES = new Set(['queued', 'preparing', 'transferring', 'waiting-for-network', 'rate-limited']);
+const CANCELLABLE_TRANSFER_STATUSES = new Set(['queued', 'preparing', 'transferring', 'paused', 'waiting-for-network', 'rate-limited']);
+const PAUSABLE_TRANSFER_STATUSES = new Set(['queued', 'preparing', 'transferring', 'waiting-for-network', 'rate-limited']);
 
-function getUploadIdsInStatuses(transfers, statuses) {
+function getTransferIdsInStatuses(transfers, statuses) {
   if (!Array.isArray(transfers)) return [];
   return transfers
-    .filter((item) => (item?.direction ?? item?.kind) === 'upload' && statuses.has(item?.status))
+    .filter((item) => ['upload', 'download'].includes(item?.direction ?? item?.kind) && statuses.has(item?.status))
     .map((item) => item.id ?? item.transferId ?? item.transfer_id)
     .filter((id) => id != null && String(id).length > 0)
     .map(String);
 }
 
-export function getCancellableUploadIds(transfers) {
-  return getUploadIdsInStatuses(transfers, CANCELLABLE_UPLOAD_STATUSES);
+export function getCancellableTransferIds(transfers) {
+  return getTransferIdsInStatuses(transfers, CANCELLABLE_TRANSFER_STATUSES);
 }
 
-export function getPausableUploadIds(transfers) {
-  return getUploadIdsInStatuses(transfers, PAUSABLE_UPLOAD_STATUSES)
+export function getPausableTransferIds(transfers) {
+  return getTransferIdsInStatuses(transfers, PAUSABLE_TRANSFER_STATUSES)
     .filter((id) => !transfers.find((item) => String(item.id ?? item.transferId ?? item.transfer_id) === id)?.deferred);
 }
-export function getResumableUploadIds(transfers) { return getUploadIdsInStatuses(transfers, new Set(['paused'])); }
+export function getResumableTransferIds(transfers) { return getTransferIdsInStatuses(transfers, new Set(['paused'])); }
+
+function transferNoun(transfers, ids) {
+  const directions = new Set(transfers
+    .filter((item) => ids.includes(String(item.id ?? item.transferId ?? item.transfer_id)))
+    .map((item) => item.direction ?? item.kind));
+  return directions.size === 1 ? `${directions.has('download') ? 'download' : 'upload'}${ids.length === 1 ? '' : 's'}` : 'transfers';
+}
 
 export function getTransferJourneyViewBox(width) {
   return Number(width) < 520 ? '340 0 220 218' : '0 0 900 218';
@@ -227,7 +234,7 @@ export function renderTransferJourney() {
       <text class="journey-caption" x="778" y="183" text-anchor="middle">Saved to your account</text>
     </svg>
     <div class="transfer-live-summary" data-live-visible="false">
-      <div class="transfer-live-heading"><div><span class="transfer-live-kicker">TRANSFER STATUS</span><strong data-live-state aria-live="polite">Preparing transfer</strong></div><span class="transfer-live-files-total" data-live-files>0 files</span><button class="transfer-pause-uploads" type="button" data-pause-uploads hidden>Pause uploads</button><button class="transfer-cancel-uploads" type="button" data-cancel-uploads hidden>Cancel uploads</button><span class="transfer-cancel-feedback" data-cancel-feedback role="status" aria-live="polite"></span></div>
+      <div class="transfer-live-heading"><div><span class="transfer-live-kicker">TRANSFER STATUS</span><strong data-live-state aria-live="polite">Preparing transfer</strong></div><span class="transfer-live-files-total" data-live-files>0 files</span><button class="transfer-pause-uploads" type="button" data-pause-transfers hidden>Pause transfers</button><button class="transfer-cancel-uploads" type="button" data-cancel-transfers hidden>Cancel transfers</button><span class="transfer-cancel-feedback" data-cancel-feedback role="status" aria-live="polite"></span></div>
       <div class="transfer-live-stats">
         <div><span>Live speed</span><strong data-live-speed>0 B/s</strong></div>
         <div><span>Transferred</span><strong><span data-live-bytes>0 B</span><small> / <span data-live-total>0 B</span></small></strong></div>
@@ -260,8 +267,8 @@ export function bindTransferJourney(section, listTransfers, cancelTransfer, paus
 
   const packets = Array.from(svg.querySelectorAll('.transfer-file-packet'));
   const summary = section.querySelector('.transfer-live-summary');
-  const cancelButton = summary?.querySelector('[data-cancel-uploads]');
-  const pauseButton = summary?.querySelector('[data-pause-uploads]');
+  const cancelButton = summary?.querySelector('[data-cancel-transfers]');
+  const pauseButton = summary?.querySelector('[data-pause-transfers]');
   const cancelFeedback = summary?.querySelector('[data-cancel-feedback]');
   const etaCountdown = createTransferEtaCountdown();
   const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -315,12 +322,17 @@ export function bindTransferJourney(section, listTransfers, cancelTransfer, paus
     latestTransfers = Array.isArray(transfers) ? transfers : [];
     const totals = getTransferJourneySummary(transfers);
     summary.dataset.liveVisible = String(totals.visible);
-    if (cancelButton) cancelButton.hidden = !getCancellableUploadIds(latestTransfers).length;
-    const pausableIds = getPausableUploadIds(latestTransfers);
-    const resumableIds = getResumableUploadIds(latestTransfers);
+    const cancellableIds = getCancellableTransferIds(latestTransfers);
+    const pausableIds = getPausableTransferIds(latestTransfers);
+    const resumableIds = getResumableTransferIds(latestTransfers);
+    if (cancelButton) {
+      cancelButton.hidden = !cancellableIds.length;
+      cancelButton.textContent = `Cancel ${transferNoun(latestTransfers, cancellableIds)}`;
+    }
     if (pauseButton) {
       pauseButton.hidden = !pausableIds.length && !resumableIds.length;
-      pauseButton.textContent = pausableIds.length ? 'Pause uploads' : 'Resume uploads';
+      const actionIds = pausableIds.length ? pausableIds : resumableIds;
+      pauseButton.textContent = `${pausableIds.length ? 'Pause' : 'Resume'} ${transferNoun(latestTransfers, actionIds)}`;
       pauseButton.dataset.action = pausableIds.length ? 'pause' : 'resume';
     }
     const setText = (selector, value) => {
@@ -345,7 +357,7 @@ export function bindTransferJourney(section, listTransfers, cancelTransfer, paus
   };
 
   cancelButton?.addEventListener('click', async () => {
-    const transferIds = getCancellableUploadIds(latestTransfers);
+    const transferIds = getCancellableTransferIds(latestTransfers);
     if (!transferIds.length || typeof cancelTransfer !== 'function' || cancelButton.disabled) return;
     cancelButton.disabled = true;
     cancelButton.textContent = 'Cancelling…';
@@ -353,19 +365,20 @@ export function bindTransferJourney(section, listTransfers, cancelTransfer, paus
     try {
       await Promise.all(transferIds.map((id) => cancelTransfer(id)));
       await sync();
-      if (cancelFeedback) cancelFeedback.textContent = 'Uploads cancelled';
+      if (cancelFeedback) cancelFeedback.textContent = `${transferIds.length} ${transferNoun(latestTransfers, transferIds)} cancelled`;
     } catch {
-      if (cancelFeedback) cancelFeedback.textContent = 'Could not cancel uploads. Try again.';
+      if (cancelFeedback) cancelFeedback.textContent = 'Could not cancel transfers. Try again.';
     } finally {
       cancelButton.disabled = false;
-      cancelButton.textContent = 'Cancel uploads';
-      cancelButton.hidden = !getCancellableUploadIds(latestTransfers).length;
+      const remainingIds = getCancellableTransferIds(latestTransfers);
+      cancelButton.textContent = `Cancel ${transferNoun(latestTransfers, remainingIds)}`;
+      cancelButton.hidden = !remainingIds.length;
     }
   });
 
   pauseButton?.addEventListener('click', async () => {
     const pausing = pauseButton.dataset.action !== 'resume';
-    const transferIds = pausing ? getPausableUploadIds(latestTransfers) : getResumableUploadIds(latestTransfers);
+    const transferIds = pausing ? getPausableTransferIds(latestTransfers) : getResumableTransferIds(latestTransfers);
     const action = pausing ? pauseTransfer : resumeTransfer;
     if (!transferIds.length || typeof action !== 'function' || pauseButton.disabled) return;
     pauseButton.disabled = true;
@@ -374,9 +387,9 @@ export function bindTransferJourney(section, listTransfers, cancelTransfer, paus
     try {
       await Promise.all(transferIds.map((id) => action(id)));
       await sync();
-      if (cancelFeedback) cancelFeedback.textContent = pausing ? 'Uploads paused' : 'Uploads resumed';
+      if (cancelFeedback) cancelFeedback.textContent = `${transferIds.length} ${transferNoun(latestTransfers, transferIds)} ${pausing ? 'paused' : 'resumed'}`;
     } catch {
-      if (cancelFeedback) cancelFeedback.textContent = `Could not ${pausing ? 'pause' : 'resume'} uploads. Try again.`;
+      if (cancelFeedback) cancelFeedback.textContent = `Could not ${pausing ? 'pause' : 'resume'} transfers. Try again.`;
     } finally {
       pauseButton.disabled = false;
     }

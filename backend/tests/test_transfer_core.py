@@ -255,6 +255,28 @@ class TransferEngineTests(unittest.TestCase):
             resumed_ranges = RangeMap.load(destination.with_name(destination.name + ".ranges.json"), file_size=8, segment_size=4)
             self.assertEqual(resumed_ranges.completed_starts, (0, 4))
 
+    def test_segmented_downloader_stops_a_stream_between_received_blocks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "stopped.part"
+            should_continue = [True]
+
+            def fetch_chunks(_start, _end):
+                yield b"abcd"
+                should_continue[0] = False
+                yield b"efgh"
+
+            downloader = SegmentedDownloader(
+                destination,
+                file_size=8,
+                segment_size=8,
+                workers=1,
+                should_continue=lambda: should_continue[0],
+                retry_policy=RetryPolicy(max_attempts=1),
+            )
+            with self.assertRaises(TransferStopped):
+                downloader.download(fetch_chunks)
+            self.assertEqual(destination.read_bytes()[:4], b"abcd")
+
     def test_segmented_downloader_persists_completed_ranges_for_resume(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "resume.part"

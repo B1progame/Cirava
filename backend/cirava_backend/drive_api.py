@@ -316,6 +316,19 @@ class DriveApiClient:
         try:
             if response.status_code >= 400:
                 raise DriveApiError(response.status_code, response.content.decode(errors="replace"))
+            if response.status_code == 200:
+                # A server may ignore Range. That is safe only for a download
+                # beginning at byte zero; nonzero ranges would otherwise write
+                # the start of the file into the wrong position.
+                if start != 0:
+                    raise IOError("Drive ignored the requested byte range")
+            elif response.status_code == 206:
+                content_range_header = response.headers.get("Content-Range", "")
+                expected_prefix = f"bytes {start}-{end}/"
+                if not content_range_header.startswith(expected_prefix):
+                    raise IOError(f"Drive returned an unexpected Content-Range: {content_range_header or 'missing'}")
+            else:
+                raise IOError(f"Drive returned unexpected range response status {response.status_code}")
             for block in response.iter_content(chunk_size=max(64 * 1024, int(chunk_size))):
                 if block:
                     yield block

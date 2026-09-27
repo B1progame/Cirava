@@ -6,9 +6,9 @@ const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.me
 const lockJson = JSON.parse(readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'));
 const backendVersion = readFileSync(new URL('../backend/cirava_backend/__init__.py', import.meta.url), 'utf8').match(/__version__\s*=\s*"([^"]+)"/)?.[1];
 
-test('the generated stable desktop release uses version 1.2.0 in frontend and backend metadata', () => {
-  assert.equal(packageJson.version, '1.2.0');
-  assert.equal(lockJson.version, '1.2.0');
-  assert.equal(lockJson.packages[''].version, '1.2.0');
-  assert.equal(backendVersion, '1.2.0');
+test('the generated stable desktop release uses version 1.2.1 in frontend and backend metadata', () => {
+  assert.equal(packageJson.version, '1.2.1');
+  assert.equal(lockJson.version, '1.2.1');
+  assert.equal(lockJson.packages[''].version, '1.2.1');
+  assert.equal(backendVersion, '1.2.1');
 });

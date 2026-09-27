@@ -4,6 +4,7 @@ from pathlib import Path
 
 from main import CiravaApi
 from cirava_backend.models import TransferRecord, TransferStatus
+from cirava_backend.notifications import TrayNotifier
 
 
 class TrayTransferControlTests(unittest.TestCase):
@@ -60,6 +61,22 @@ class TrayTransferControlTests(unittest.TestCase):
         self.assertEqual(self.api.store.get("active").status, TransferStatus.CANCELLED)
         self.assertEqual(self.api.store.get("paused").status, TransferStatus.PAUSED)
         self.assertEqual(self.api.store.get("done").status, TransferStatus.COMPLETED)
+
+    def test_tray_is_marked_ready_only_after_windows_reports_the_icon_visible(self):
+        notifier = TrayNotifier()
+
+        class FakeIcon:
+            Visible = False
+
+        icon = FakeIcon()
+        self.assertFalse(notifier._register_icon_if_visible(icon))
+        self.assertFalse(notifier._registered)
+        self.assertFalse(notifier._ready.is_set())
+
+        icon.Visible = True
+        self.assertTrue(notifier._register_icon_if_visible(icon))
+        self.assertTrue(notifier._registered)
+        self.assertTrue(notifier._ready.is_set())
 
 
 if __name__ == "__main__":

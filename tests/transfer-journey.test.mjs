@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTransferEtaCountdown, formatTransferJourneyElapsed, formatTransferJourneyEta, getCancellableUploadIds, getPausableUploadIds, getResumableUploadIds, getTransferJourneyActivity, getTransferJourneyFrame, getTransferJourneyPathProgress, getTransferJourneySummary, getTransferJourneyViewBox, renderTransferJourney } from '../src/transfer-journey.js';
+import { createTransferEtaCountdown, formatTransferJourneyElapsed, formatTransferJourneyEta, getCancellableTransferIds, getPausableTransferIds, getResumableTransferIds, getTransferJourneyActivity, getTransferJourneyFrame, getTransferJourneyPathProgress, getTransferJourneySummary, getTransferJourneyViewBox, renderTransferJourney } from '../src/transfer-journey.js';
 
 test('empty transfer state presents a labeled route with hidden SVG file packets', () => {
   const html = renderTransferJourney();
@@ -149,31 +149,35 @@ test('elapsed time counts up from the earliest transfer start and shows hours, m
   assert.equal(formatTransferJourneyElapsed(9), '0 hr 0 min 9 sec');
 });
 
-test('a paused upload is not reported as moving and remains cancellable from the transfer panel', () => {
+test('paused downloads and queued downloads can be controlled from the transfer panel', () => {
   const transfers = [
     { id: 'paused-upload', direction: 'upload', status: 'paused', size: 8_000, bytes_transferred: 1_000 },
     { id: 'queued-upload', direction: 'upload', status: 'queued', size: 2_000, bytes_transferred: 0 },
     { id: 'paused-download', direction: 'download', status: 'paused', size: 4_000 },
+    { id: 'moving-download', direction: 'download', status: 'transferring', size: 10_000 },
     { id: 'done-upload', direction: 'upload', status: 'completed', size: 100 },
   ];
-  assert.equal(getTransferJourneySummary(transfers).state, 'Waiting to start');
+  assert.equal(getTransferJourneySummary(transfers).state, 'Starting download');
   assert.equal(getTransferJourneyActivity(transfers).upload, false);
-  assert.deepEqual(getCancellableUploadIds(transfers), ['paused-upload', 'queued-upload']);
+  assert.deepEqual(getCancellableTransferIds(transfers), ['paused-upload', 'queued-upload', 'paused-download', 'moving-download']);
+  assert.deepEqual(getPausableTransferIds(transfers), ['queued-upload', 'moving-download']);
+  assert.deepEqual(getResumableTransferIds(transfers), ['paused-upload', 'paused-download']);
   const html = renderTransferJourney();
-  assert.match(html, /data-cancel-uploads hidden>Cancel uploads/);
-  assert.match(html, /data-pause-uploads hidden>Pause uploads/);
+  assert.match(html, /data-cancel-transfers hidden>Cancel transfers/);
+  assert.match(html, /data-pause-transfers hidden>Pause transfers/);
 });
 
-test('transfer actions target only uploads in supported states', () => {
+test('transfer actions include download records in supported states and omit deferred work from pause', () => {
   const transfers = [
     { id: 'moving', direction: 'upload', status: 'transferring' },
     { id: 'queued', direction: 'upload', status: 'queued' },
     { id: 'paused', direction: 'upload', status: 'paused' },
     { id: 'download', direction: 'download', status: 'transferring' },
+    { id: 'deferred-download', direction: 'download', status: 'queued', deferred: true },
     { id: 'verifying', direction: 'upload', status: 'verifying' },
   ];
-  assert.deepEqual(getPausableUploadIds(transfers), ['moving', 'queued']);
-  assert.deepEqual(getResumableUploadIds(transfers), ['paused']);
+  assert.deepEqual(getPausableTransferIds(transfers), ['moving', 'queued', 'download']);
+  assert.deepEqual(getResumableTransferIds(transfers), ['paused']);
 });
 
 test('a zero-byte transfer is reported as starting instead of falsely implying data is moving', () => {
