@@ -2,7 +2,7 @@
   <img src="public/cirava-logo.png" alt="Cirava" width="88" height="88">
   <h1>Cirava</h1>
   <p><strong>Your files, in motion.</strong><br>
-  A calmer, more resilient way to move files through Google Drive.</p>
+  A Windows desktop client for moving files through Google Drive.</p>
   <p>
     <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/STABLE-v1.1.3-6079ed?style=for-the-badge" alt="Latest stable release: v1.1.3"></a>
     <img src="https://img.shields.io/badge/platform-Windows-2aa995?style=for-the-badge" alt="Windows desktop app">
@@ -13,37 +13,53 @@
 <br>
 
 <div align="center">
-  <img src="docs/images/cirava-home.png" alt="Cirava Home: animated upload orb, Home navigation, and upload and download actions" width="100%">
+  <img src="docs/images/cirava-home.png" alt="Cirava Home screen" width="100%">
 </div>
 
-## Move files. Keep your momentum.
+## What Cirava does
 
-Cirava is a focused Windows desktop client for Google Drive. Uploads and downloads are designed to recover from interruptions, while live aggregate progress, throughput, pause, resume, and cancel controls make it easy to see what is happening and stay in control. The app can continue transfers from the system tray while its window is closed.
+Cirava connects a Windows desktop app to your Google Drive account. It is built for large transfers and for seeing what the app is doing while they run. Uploads use resumable Drive sessions; downloads can use parallel byte ranges. The transfer center shows progress, speed, retries, and estimated time, with pause, resume, and cancel controls.
 
-Open **Drive → Trash** to restore items, permanently empty the trash, and see Google-reported account storage usage. The update dialog lets you choose Stable or Beta from a menu that opens only when requested.
+You can close the window while work is running. Cirava stays in the Windows notification area and continues active transfers until you reopen it or choose **Exit Cirava**. The Drive page also includes Trash, where you can restore items, empty Trash, and view storage figures reported by Google.
 
-| Keep moving | Stay in control | Keep credentials local |
-|:--|:--|:--|
-| Resumable transfers pick up after a connection drops. | Follow progress, throughput, retries, and transfer status in one place. | Sign in with Google’s desktop OAuth flow; tokens are protected on your device with Windows DPAPI. |
+## Download and install
 
-## Get Cirava
+Get the latest build from [GitHub Releases](https://github.com/B1progame/Cirava/releases/latest). The v1.1.3 release includes:
 
-**[Download Cirava v1.1.3 for Windows](https://github.com/B1progame/Cirava/releases/latest)** from GitHub Releases. Choose `Cirava-Setup-1.1.3.exe` for the guided installer or `Cirava.exe` for the standalone app. The release also includes `update-manifest.json` for checksum-verified in-app updates.
+- `Cirava-Setup-1.1.3.exe` for the Windows installer.
+- `Cirava.exe` for the standalone app, with no installer.
+- `update-manifest.json` for checksum-verified in-app updates.
 
-Cirava connects with a Google **Desktop OAuth client**. Follow the [Google setup guide](GOOGLE_SETUP.md) to configure the client ID and Drive API access. Cirava never asks for your Google password.
+After launching Cirava, connect a Google account using a Desktop OAuth client. This is a one-time setup for the Cloud project and client ID. Follow the [step-by-step Google OAuth setup](GOOGLE_SETUP.md), then use the [wiki](https://github.com/B1progame/Cirava/wiki) for everyday tasks and troubleshooting.
 
-New to Cirava? The [Cirava wiki](https://github.com/B1progame/Cirava/wiki) walks through setup, uploads, downloads, transfer controls, and common fixes.
+## Everyday tasks
 
-## Build it yourself
+- **Upload:** choose files or a folder, select the Drive destination, review the plan, and hold the start button to begin. The empty-folder upload button opens the same planner.
+- **Download:** choose a Drive item and its local destination. Folder downloads are packaged as ZIP files; Google Docs, Sheets, and Slides are exported to a supported format.
+- **Control transfers:** open **Transfers** to monitor progress, pause or resume work, cancel it, or inspect recent results.
+- **Use Trash:** open **Drive → Trash** to restore items, permanently empty Trash, and see account usage reported by Google.
+- **Choose updates:** select Stable or Beta in the update dialog. Updates within the same major version install in-app; a major-version change opens the installer.
 
-For development, use Windows 10 or 11, Node.js, and Python 3.12. PyInstaller and Inno Setup 6 are needed to package the desktop installer.
+The optional 20 GB test upload sends real data to your Drive. It uses your Drive storage and network quota. It is not a local simulation.
+
+## Google access and privacy
+
+Cirava uses Google’s installed-app authorization-code flow with PKCE. It never asks for your Google password. OAuth tokens are stored locally and protected with Windows DPAPI for the current Windows user. Do not copy token files to another account or share them in support requests.
+
+Cirava requests `https://www.googleapis.com/auth/drive` so it can browse existing items, manage the complete Trash, restore items, and read storage usage. Google classifies this broad Drive permission as restricted. An External OAuth app left in Testing is limited to listed test users, and Google documents a seven-day refresh-token lifetime for this scope. Public distribution requires meeting Google's applicable OAuth verification and policy requirements. Existing Cirava users must reconnect and approve the expanded permission.
+
+See the [security model](SECURITY.md) for local data handling and the [Google OAuth setup guide](GOOGLE_SETUP.md) for the exact Console steps.
+
+## Development
+
+For local development, use Windows 10 or 11, Node.js, and Python 3.12. The installer build also uses PyInstaller and Inno Setup 6.
 
 ```powershell
 npm.cmd install
 npm.cmd run dev -- --host 127.0.0.1 --port 4175
 ```
 
-To build and check the desktop app:
+To type-check, build, run backend tests, and package the app:
 
 ```powershell
 npx.cmd tsc --noEmit
@@ -54,16 +70,13 @@ npm.cmd run package:desktop
 npm.cmd run package:installer
 ```
 
-More detail: [testing](TESTING.md) · [architecture](ARCHITECTURE.md) · [packaging](packaging/README.md).
+See [TESTING.md](TESTING.md), [ARCHITECTURE.md](ARCHITECTURE.md), and [packaging/README.md](packaging/README.md) for the test matrix, component overview, and packaging details. The [wiki](https://github.com/B1progame/Cirava/wiki) includes user guides and technical notes.
 
-## Security and scope
+## Project links
 
-- Google sign-in uses authorization code + PKCE and requests full Drive access so the app can show the complete Trash, restore items, empty Trash, and report account storage usage. Existing sessions must reconnect to approve this permission.
-- Google classifies the full `drive` scope as restricted; the OAuth consent configuration and applicable Google verification requirements must be satisfied before distributing this mode publicly.
-- OAuth tokens are protected with Windows DPAPI.
-- Transfers respect Google Drive permissions, quotas, and rate limits.
-- Updates use HTTPS and verify the downloaded app against its published SHA-256 before applying it.
+- [Wiki and user guides](https://github.com/B1progame/Cirava/wiki)
+- [Google OAuth setup](https://github.com/B1progame/Cirava/wiki/Google-OAuth-Setup)
+- [Release history and downloads](https://github.com/B1progame/Cirava/releases)
+- [Report a bug](https://github.com/B1progame/Cirava/issues)
 
-See the [security model](SECURITY.md) and [performance notes](PERFORMANCE.md).
-
-Cirava is an independent project and is not affiliated with, endorsed by, or sponsored by Google LLC. No redistribution license has been selected yet.
+Cirava is an independent project. It is not affiliated with, endorsed by, or sponsored by Google LLC. No redistribution license has been selected yet.
