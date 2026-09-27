@@ -30,6 +30,8 @@ If pause or cancel seems delayed, confirm the transfer status changed to **Pause
 
 Cirava uses the installer when the major version increases, such as 1.x to 2.x. Updates within the same major version use the in-app app update, such as 1.2.0 to 1.2.1.
 
+If an update downloads but Cirava does not reopen, check `%APPDATA%\Cirava\updates\update-apply.log` for the handoff result. The refreshed 1.2.1 installer repairs older installations whose updater could download the app but could not replace and restart it. Download `Cirava-Setup-1.2.1.exe` from [GitHub Releases](https://github.com/B1progame/Cirava/releases/tag/v1.2.1) and run it once. The installer keeps the app's Google account data in your Windows profile.
+
 ## The release-channel menu stays open
 
 The channel menu should be closed until you open **Release channel**. If it does not close after choosing Stable or Beta, restart Cirava and install the current release. Press **Escape** to close the menu, or click elsewhere in the dialog.

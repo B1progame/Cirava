@@ -24,7 +24,7 @@ from cirava_backend.oauth import OAuthConfig, OAuthSession, TokenManager, TokenS
 from cirava_backend.notifications import TrayNotifier
 from cirava_backend.storage import TransferStore
 from cirava_backend.transfer_engine import ResumableUploader, SegmentedDownloader, TokenBucket, TransferStopped, TransferTelemetry, resolve_conflict, verify_md5
-from cirava_backend.updater import Updater, is_newer_version, requires_major_installer
+from cirava_backend.updater import Updater, build_windows_update_script, is_newer_version, requires_major_installer
 from cirava_backend import __version__
 
 
@@ -684,15 +684,11 @@ class CiravaApi:
         if target.name.lower() != "cirava.exe" or target == candidate:
             raise RuntimeError("The current Cirava executable path is not safe to update")
         import base64
-        script = (
-            "$ErrorActionPreference='Stop';"
-            f"$ciravaPid={os.getpid()};$source='{str(candidate).replace(chr(39), chr(39)*2)}';"
-            f"$target='{str(target).replace(chr(39), chr(39)*2)}';"
-            "while(Get-Process -Id $ciravaPid -ErrorAction SilentlyContinue){Start-Sleep -Milliseconds 300};"
-            "$replacement=$target+'.new';Copy-Item -LiteralPath $source -Destination $replacement -Force;"
-            "Move-Item -LiteralPath $replacement -Destination $target -Force;"
-            "Start-Process -FilePath $target -WorkingDirectory (Split-Path -Parent $target);"
-            "Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue"
+        import hashlib
+        with candidate.open("rb") as update_file:
+            expected_sha256 = hashlib.file_digest(update_file, "sha256").hexdigest()
+        script = build_windows_update_script(
+            os.getpid(), str(candidate), str(target), str(updates_dir / "update-apply.log"), expected_sha256
         )
         encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
         powershell = str(Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")

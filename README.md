@@ -30,7 +30,9 @@ Get the latest build from [GitHub Releases](https://github.com/B1progame/Cirava/
 - `Cirava.exe` for the standalone app, with no installer.
 - `update-manifest.json` for checksum-verified in-app updates.
 
-This release makes Drive create actions easier to use with an in-app naming dialog, improves pause and cancel responsiveness for downloads, hardens ranged-download validation, and makes tray controls wait for a ready Windows message loop. It also corrects the Cirava logo URL used on GitHub.
+This release makes Drive create actions easier to use with an in-app naming dialog, improves pause and cancel responsiveness for downloads, hardens ranged-download validation, and makes tray controls wait for a ready Windows message loop. The in-app updater now verifies the replacement again, applies it with a rollback copy, restarts Cirava, and records handoff errors in `%APPDATA%\Cirava\updates\update-apply.log`.
+
+If an older installation downloaded an update but did not restart, run the refreshed `Cirava-Setup-1.2.1.exe` from the release page once. That installs the repaired updater for future in-app updates.
 
 After launching Cirava, connect a Google account using a Desktop OAuth client. This is a one-time setup for the Cloud project and client ID. Follow the [step-by-step Google OAuth setup](GOOGLE_SETUP.md), then use the [wiki](https://github.com/B1progame/Cirava/wiki) for everyday tasks and troubleshooting.
 

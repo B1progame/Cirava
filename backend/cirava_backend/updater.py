@@ -64,6 +64,54 @@ def _require_https(url: str, label: str) -> None:
         raise ValueError(f"{label} URLs must use HTTPS and must not contain credentials")
 
 
+def build_windows_update_script(process_id: int, source: str, target: str, log_path: str, expected_sha256: str) -> str:
+    """Build a logged, bounded Windows handoff for replacing the running app."""
+    if not re.fullmatch(r"[a-fA-F0-9]{64}", expected_sha256):
+        raise ValueError("A valid SHA-256 checksum is required to apply an update")
+
+    def literal(value: str) -> str:
+        return "'" + value.replace("'", "''") + "'"
+
+    source_literal = literal(source)
+    target_literal = literal(target)
+    log_literal = literal(log_path)
+    digest_literal = literal(expected_sha256.lower())
+    return (
+        "$ErrorActionPreference='Stop';"
+        f"$ciravaPid={int(process_id)};$source={source_literal};$target={target_literal};"
+        f"$log={log_literal};$expected={digest_literal};$replacement=$target+'.new';"
+        "$backup=$target+'.cirava-backup';"
+        "function Write-UpdateLog([string]$message){"
+        "[IO.File]::AppendAllText($log,((Get-Date).ToString('o')+' '+$message+[Environment]::NewLine),[Text.Encoding]::UTF8)};"
+        "function Get-UpdateHash([string]$path){$stream=[IO.File]::OpenRead($path);$sha=[Security.Cryptography.SHA256]::Create();"
+        "try{([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','').ToLowerInvariant()}"
+        "finally{$sha.Dispose();$stream.Dispose()}};"
+        "try{Write-UpdateLog 'Handoff started; waiting for Cirava to exit.';"
+        "$deadline=(Get-Date).AddSeconds(120);"
+        "while(Get-Process -Id $ciravaPid -ErrorAction SilentlyContinue){"
+        "if((Get-Date)-gt $deadline){throw 'Cirava did not exit within 120 seconds.'};Start-Sleep -Milliseconds 250};"
+        "Write-UpdateLog 'Cirava exited; copying verified update.';"
+        "Copy-Item -LiteralPath $source -Destination $replacement -Force;"
+        "if((Get-UpdateHash $replacement) -ne $expected){throw 'Staged update changed while it was copied.'};"
+        "if(Test-Path -LiteralPath $backup){Remove-Item -LiteralPath $backup -Force};"
+        "if(Test-Path -LiteralPath $target){[IO.File]::Replace($replacement,$target,$backup,$true)}"
+        "else{[IO.File]::Move($replacement,$target)};"
+        "if((Get-UpdateHash $target) -ne $expected){throw 'Replacement executable failed checksum verification.'};"
+        "$started=Start-Process -FilePath $target -WorkingDirectory (Split-Path -Parent $target) -PassThru;"
+        "Write-UpdateLog ('Updated executable launched with PID '+$started.Id+'.');"
+        "Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue;"
+        "Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue;"
+        "Write-UpdateLog 'Update handoff completed.'"
+        "}catch{Write-UpdateLog ('Update handoff failed: '+$_.Exception.Message);"
+        "if(Test-Path -LiteralPath $backup){try{"
+        "if(Test-Path -LiteralPath $target){Remove-Item -LiteralPath $target -Force};"
+        "[IO.File]::Move($backup,$target);"
+        "Start-Process -FilePath $target -WorkingDirectory (Split-Path -Parent $target);"
+        "Write-UpdateLog 'Previous executable restored and restarted.'"
+        "}catch{Write-UpdateLog ('Rollback failed: '+$_.Exception.Message)}};exit 1}"
+    )
+
+
 @dataclass(frozen=True)
 class UpdateManifest:
     version: str

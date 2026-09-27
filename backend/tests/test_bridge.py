@@ -1,3 +1,4 @@
+import base64
 import tempfile
 import unittest
 import hashlib
@@ -658,6 +659,26 @@ class BridgeTests(unittest.TestCase):
                 )
             with self.assertRaises(ValueError):
                 api.restart_staged_update(str(root / "outside.exe"))
+
+    def test_in_place_update_starts_logged_hash_verifying_handoff(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            api = CiravaApi(root / "app", start_workers=False)
+            staged = api.data_dir / "updates" / "cirava-update.exe"
+            staged.parent.mkdir(parents=True)
+            staged.write_bytes(b"verified app payload")
+            target = root / "install" / "Cirava.exe"
+            target.parent.mkdir()
+            target.write_bytes(b"old running app")
+            with patch("main.sys.frozen", True, create=True), patch("main.sys.executable", str(target)), patch("main.subprocess.Popen") as launch:
+                result = api.restart_staged_update(str(staged), "in_place")
+            self.assertTrue(result["started"])
+            encoded = launch.call_args.args[0][-1]
+            script = base64.b64decode(encoded).decode("utf-16le")
+            expected = hashlib.sha256(staged.read_bytes()).hexdigest()
+            self.assertIn(expected, script)
+            self.assertIn("update-apply.log", script)
+            self.assertIn("[IO.File]::Replace", script)
 
 
 if __name__ == "__main__":

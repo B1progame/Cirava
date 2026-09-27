@@ -1,17 +1,68 @@
+import base64
 import hashlib
 import json
+import os
+import shutil
+import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
-import base64
 from io import BytesIO
 from unittest.mock import patch
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from cirava_backend.updater import UpdateManifest, Updater, is_newer_version, requires_major_installer
+from cirava_backend.updater import UpdateManifest, Updater, build_windows_update_script, is_newer_version, requires_major_installer
 
 
 class UpdaterTests(unittest.TestCase):
+    def test_windows_apply_script_logs_failures_bounds_wait_and_verifies_replacement(self):
+        script = build_windows_update_script(
+            4321,
+            r"C:\Users\tester\AppData\Roaming\Cirava\updates\it's.exe",
+            r"C:\Users\tester\AppData\Local\Programs\Cirava\Cirava.exe",
+            r"C:\Users\tester\AppData\Roaming\Cirava\updates\update-apply.log",
+            "a" * 64,
+        )
+        self.assertIn("update-apply.log", script)
+        self.assertIn("AddSeconds(120)", script)
+        self.assertIn("[IO.File]::Replace($replacement,$target,$backup,$true)", script)
+        self.assertIn("ComputeHash($stream)", script)
+        self.assertIn("catch", script)
+        self.assertIn("4321", script)
+        self.assertIn("it''s.exe", script)
+
+    @unittest.skipUnless(os.name == "nt", "Windows PowerShell integration test")
+    def test_windows_apply_script_replaces_binary_logs_and_restarts(self):
+        powershell = Path(os.environ["WINDIR"]) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+        system_app = Path(os.environ["WINDIR"]) / "System32" / "whoami.exe"
+        previous_app = Path(os.environ["WINDIR"]) / "System32" / "where.exe"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            update_dir = root / "updates"
+            install_dir = root / "install"
+            update_dir.mkdir()
+            install_dir.mkdir()
+            source = update_dir / "cirava-update.exe"
+            target = install_dir / "Cirava.exe"
+            shutil.copy2(system_app, source)
+            shutil.copy2(previous_app, target)
+            expected = hashlib.sha256(source.read_bytes()).hexdigest()
+            log = update_dir / "update-apply.log"
+            script = build_windows_update_script(99999999, str(source), str(target), str(log), expected)
+            encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+            result = subprocess.run(
+                [str(powershell), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, f"{result.stderr}\n{log.read_text(encoding='utf-8-sig') if log.exists() else 'no updater log'}")
+            self.assertEqual(hashlib.sha256(target.read_bytes()).hexdigest(), expected)
+            self.assertFalse(source.exists())
+            self.assertIn("Update handoff completed", log.read_text(encoding="utf-8-sig"))
+            time.sleep(1)
+
     def test_beta_feed_uses_manifest_from_latest_github_prerelease(self):
         api_payload = json.dumps([
             {"draft": False, "prerelease": True, "body": "## Beta notes\n\n- **Resumable** transfers", "assets": [{"name": "update-manifest.json", "browser_download_url": "https://github.com/acme/cirava/releases/download/v1.2.0-beta.2/update-manifest.json"}]},
