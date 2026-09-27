@@ -8,7 +8,7 @@ That configuration check only validates the client ID format and network access.
 
 ## Drive is missing folders or actions
 
-Make sure Cirava is connected to the account that can see the item. Cirava uses Google's `drive.file` scope, which does not give it blanket access to every item in Drive. A folder can exist in Drive and still be unavailable to Cirava unless it has been opened with or shared with the app. Shared Drive operations also depend on the signed-in user's permissions. Read the [scope notes](Google-OAuth-Setup#important-drivefile-scope-limitation) before changing OAuth settings.
+Make sure Cirava is connected to the account that can see the item. Current Cirava versions request full Drive access for Trash, restore, and account storage features. If you upgraded from an older version, reconnect Google and approve the expanded access. Shared Drive operations still depend on the signed-in user's permissions. Read the [scope notes](Google-OAuth-Setup#important-full-drive-scope-and-verification) before changing OAuth settings.
 
 ## Upload does not start
 
@@ -26,7 +26,11 @@ Check that the destination folder has free space and that the signed-in account 
 
 ## The app asks me to run the installer for an update
 
-Cirava uses the installer when the major version increases, such as 1.x to 2.x. Updates within the same major version use the in-app app update, such as 1.1.1 to 1.1.2.
+Cirava uses the installer when the major version increases, such as 1.x to 2.x. Updates within the same major version use the in-app app update, such as 1.1.2 to 1.1.3.
+
+## The release-channel menu stays open
+
+The channel menu should be closed until you open **Release channel**. If it does not close after choosing Stable or Beta, restart Cirava and install the current release. Press **Escape** to close the menu, or click elsewhere in the dialog.
 
 ## The window closed, but Cirava is still running
 

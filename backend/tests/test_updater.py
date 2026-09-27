@@ -47,6 +47,7 @@ class UpdaterTests(unittest.TestCase):
 
     def test_only_new_major_versions_require_the_installer(self):
         self.assertFalse(requires_major_installer("1.10.1", "1.0.0"))
+        self.assertFalse(requires_major_installer("1.11.6", "1.10.0"))
         self.assertTrue(requires_major_installer("2.0.0", "1.10.1"))
         self.assertFalse(requires_major_installer("1.0.0", "1.10.1"))
 

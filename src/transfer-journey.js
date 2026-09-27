@@ -117,7 +117,8 @@ export function formatTransferJourneyEta(seconds) {
   if (seconds == null) return 'Calculating…';
   const remainingSeconds = Number(seconds);
   if (!Number.isFinite(remainingSeconds) || remainingSeconds < 0) return 'Calculating…';
-  if (remainingSeconds < 60) return 'Less than a minute left';
+  if (remainingSeconds === 0) return 'Finishing…';
+  if (remainingSeconds < 60) return `${Math.ceil(remainingSeconds)} sec left`;
   const totalMinutes = Math.ceil(remainingSeconds / 60);
   const days = Math.floor(totalMinutes / 1440);
   const hours = Math.floor((totalMinutes % 1440) / 60);

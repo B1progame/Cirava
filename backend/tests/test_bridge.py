@@ -9,9 +9,29 @@ from pathlib import Path
 from main import CiravaApi
 from cirava_backend.drive_api import DriveApiError
 from cirava_backend.notifications import TrayNotifier
+from cirava_backend.updater import UpdateManifest
 
 
 class BridgeTests(unittest.TestCase):
+    def test_update_check_uses_in_place_for_same_major_and_installer_for_major_bump(self):
+        manifests = [
+            UpdateManifest(version="1.11.6", url="https://example.invalid/setup.exe", sha256="a" * 64,
+                           app_url="https://example.invalid/Cirava.exe", app_sha256="b" * 64),
+            UpdateManifest(version="2.0.0", url="https://example.invalid/setup.exe", sha256="a" * 64,
+                           app_url="https://example.invalid/Cirava.exe", app_sha256="b" * 64),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            api = CiravaApi(Path(directory), start_workers=False)
+            with patch("main.Updater") as updater:
+                updater.return_value.fetch_manifest.side_effect = manifests
+                same_major = api.check_for_update("https://example.invalid/feed", "1.10.0")
+                major_bump = api.check_for_update("https://example.invalid/feed", "1.11.6")
+        self.assertTrue(same_major["available"])
+        self.assertEqual(same_major["update_type"], "in_place")
+        self.assertTrue(same_major["in_place_available"])
+        self.assertTrue(major_bump["available"])
+        self.assertEqual(major_bump["update_type"], "installer")
+
     def test_native_file_and_folder_pickers_return_selected_paths(self):
         class FakeWindow:
             def __init__(self):
@@ -71,6 +91,61 @@ class BridgeTests(unittest.TestCase):
             self.assertFalse(state["configured"])
             self.assertFalse(state["authenticated"])
             self.assertEqual(state["transfers"], [])
+
+    def test_old_drive_file_session_must_reconnect_for_full_drive_access(self):
+        with tempfile.TemporaryDirectory() as directory:
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+            api.tokens.save({"access_token": "old-token", "refresh_token": "old-refresh"})
+            self.assertFalse(api.boot_state()["authenticated"])
+            api.tokens.save({"access_token": "new-token", "refresh_token": "new-refresh", "cirava_scope_version": 2})
+            self.assertTrue(api.boot_state()["authenticated"])
+
+    def test_google_reauthorization_saves_full_drive_scope_marker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+            api.save_google_configuration("1234567890-cirava.apps.googleusercontent.com")
+            with patch("main.OAuthSession") as oauth:
+                oauth.return_value.login.return_value = {"access_token": "new-token", "refresh_token": "new-refresh"}
+                self.assertTrue(api.begin_google_login()["authenticated"])
+            self.assertEqual(api.tokens.load()["cirava_scope_version"], 2)
+
+    def test_trash_and_storage_bridge_methods_forward_to_drive(self):
+        class FakeDrive:
+            def list_trashed_files(self):
+                return {"files": [{"id": "trashed-1"}]}
+
+            def restore_file(self, file_id):
+                self.restored = file_id
+
+            def empty_trash(self):
+                self.emptied = True
+
+            def storage_quota(self):
+                return {"usage": "450", "limit": "1000"}
+
+        with tempfile.TemporaryDirectory() as directory:
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+            drive = FakeDrive()
+            api._drive = lambda: drive
+            self.assertEqual(api.list_trashed_drive_files(), {"files": [{"id": "trashed-1"}]})
+            self.assertEqual(api.restore_drive_file("trashed-1"), {"id": "trashed-1", "status": "restored"})
+            self.assertEqual(api.empty_drive_trash(), {"status": "emptied"})
+            self.assertEqual(api.get_storage_quota(), {"usage": "450", "limit": "1000"})
+            self.assertEqual(drive.restored, "trashed-1")
+            self.assertTrue(drive.emptied)
+
+    def test_drive_name_lookup_uses_an_exact_global_search(self):
+        class FakeDrive:
+            def find_files_by_name(self, name, *, shared_drive_id=None):
+                self.searched = name
+                return [{"id": "nested-file", "name": name}]
+
+        with tempfile.TemporaryDirectory() as directory:
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+            drive = FakeDrive()
+            api._drive = lambda: drive
+            self.assertEqual(api.find_drive_files_by_name("dummy_5120mb.bin"), {"files": [{"id": "nested-file", "name": "dummy_5120mb.bin"}]})
+            self.assertEqual(drive.searched, "dummy_5120mb.bin")
 
     def test_startup_marks_orphaned_transfer_paused_and_preserves_resume_offset(self):
         with tempfile.TemporaryDirectory() as directory:

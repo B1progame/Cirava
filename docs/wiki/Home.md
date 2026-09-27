@@ -6,6 +6,7 @@ Start with the task you want to do:
 - [Set up Google sign-in](Google-OAuth-Setup): configure the Google Cloud project and Desktop OAuth client.
 - [Upload files](Uploading): choose files, set a destination, and start the transfer.
 - [Download files or folders](Downloading): save Drive items to this PC.
+- [Use Drive Trash](Trash): restore deleted items, permanently empty Trash, and check storage usage.
 - [Follow a transfer](Transfers): understand progress, pause or resume, and keep work running in the tray.
 - [Fix a problem](Troubleshooting): check common sign-in, Drive, and transfer issues.
 - [Privacy and account access](Privacy-and-security): see what Cirava stores and what its Drive access covers.

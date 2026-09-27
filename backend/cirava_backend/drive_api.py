@@ -72,6 +72,51 @@ class DriveApiClient:
             "driveName": "Personal Drive",
         }
 
+    def storage_quota(self) -> dict:
+        """Return Drive storage usage, including the portion held in Trash."""
+        params = urllib.parse.urlencode({"fields": "storageQuota(limit,usage,usageInDrive,usageInDriveTrash)"})
+        _, _, data = self._request(f"{DRIVE_API}/about?{params}")
+        return json.loads(data.decode()).get("storageQuota") or {}
+
+    def list_trashed_files(self) -> dict:
+        """List every trashed item visible in the signed-in user's Drive."""
+        params = {
+            "q": "trashed = true",
+            "fields": "nextPageToken,files(id,name,mimeType,size,modifiedTime,trashedTime,parents,owners(displayName,emailAddress),capabilities(canTrash,canDelete))",
+            "pageSize": "1000",
+            "includeItemsFromAllDrives": "true",
+            "supportsAllDrives": "true",
+        }
+        files: list[dict] = []
+        while True:
+            _, _, data = self._request(f"{DRIVE_API}/files?{urllib.parse.urlencode(params)}")
+            page = json.loads(data.decode())
+            files.extend(page.get("files", []))
+            token = page.get("nextPageToken")
+            if not token:
+                return {"files": files}
+            params["pageToken"] = token
+
+    def restore_file(self, file_id: str) -> None:
+        """Restore an item by clearing its Drive trashed flag."""
+        if not file_id:
+            raise ValueError("Drive file ID is required")
+        params = urllib.parse.urlencode({"supportsAllDrives": "true"})
+        status, _, _ = self._request(
+            f"{DRIVE_API}/files/{urllib.parse.quote(file_id)}?{params}",
+            method="PATCH",
+            body=json.dumps({"trashed": False}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        if status not in {200, 204}:
+            raise DriveApiError(status, "Google Drive did not restore the file")
+
+    def empty_trash(self) -> None:
+        """Permanently delete all items in the signed-in user's Drive trash."""
+        status, _, _ = self._request(f"{DRIVE_API}/files/trash", method="DELETE")
+        if status not in {200, 204}:
+            raise DriveApiError(status, "Google Drive could not empty the trash")
+
     def list_all_files(self, *, parent_id: str = "root", query: str | None = None, shared_drive_id: str | None = None) -> dict:
         files: list[dict] = []
         page_token: str | None = None
@@ -81,6 +126,31 @@ class DriveApiClient:
             page_token = page.get("nextPageToken")
             if not page_token:
                 return {"files": files}
+
+    def find_files_by_name(self, name: str, *, shared_drive_id: str | None = None) -> list[dict]:
+        """Find exact-name items across Drive folders, not only the visible root."""
+        if not name or not name.strip():
+            raise ValueError("Drive file name is required")
+        escaped = name.replace("\\", "\\\\").replace("'", "\\'")
+        params = {
+            "q": f"name = '{escaped}' and trashed = false",
+            "fields": "nextPageToken,files(id,name,mimeType,size,modifiedTime,parents,capabilities(canDownload,canEdit))",
+            "pageSize": "1000",
+            "orderBy": "name",
+            "includeItemsFromAllDrives": "true",
+            "supportsAllDrives": "true",
+        }
+        if shared_drive_id:
+            params.update({"corpora": "drive", "driveId": shared_drive_id})
+        matches: list[dict] = []
+        while True:
+            _, _, data = self._request(f"{DRIVE_API}/files?{urllib.parse.urlencode(params)}")
+            page = json.loads(data.decode())
+            matches.extend(file for file in page.get("files", []) if file.get("name") == name)
+            token = page.get("nextPageToken")
+            if not token:
+                return matches
+            params["pageToken"] = token
 
     def find_folders_by_name(self, name: str, *, shared_drive_id: str | None = None) -> list[dict]:
         escaped = name.replace("\\", "\\\\").replace("'", "\\'")

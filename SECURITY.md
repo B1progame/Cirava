@@ -2,7 +2,7 @@
 
 ## OAuth and permissions
 
-Cirava uses the desktop OAuth authorization-code flow with PKCE and a loopback callback. It does not ask for or store a Google password. The current Drive scope is `drive.file`; a future full-browse mode must be clearly separated and must request broader consent explicitly.
+Cirava uses the desktop OAuth authorization-code flow with PKCE and a loopback callback. It does not ask for or store a Google password. To provide account-wide Drive browsing, complete Trash restore/permanent deletion, and storage usage, Cirava requests the restricted `https://www.googleapis.com/auth/drive` scope. Users must explicitly approve it in Google sign-in; saved sessions from earlier builds are treated as disconnected until they reconnect and grant the new scope. Public distribution requires the applicable Google OAuth verification for restricted scopes.
 
 ## Token storage
 

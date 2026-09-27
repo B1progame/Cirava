@@ -110,10 +110,12 @@ test('ETA uses aggregate active throughput and remaining bytes; formatting stays
     { status: 'transferring', direction: 'upload', size: 20_000, bytes_transferred: 5_000, speed_bps: 600 },
   ]);
   assert.equal(summary.etaSeconds, 23);
-  assert.equal(formatTransferJourneyEta(summary.etaSeconds), 'Less than a minute left');
+  assert.equal(formatTransferJourneyEta(summary.etaSeconds), '23 sec left');
   assert.equal(formatTransferJourneyEta(60), '1 min left');
   assert.equal(formatTransferJourneyEta(null), 'Calculating…');
-  assert.equal(formatTransferJourneyEta(8), 'Less than a minute left');
+  assert.equal(formatTransferJourneyEta(8), '8 sec left');
+  assert.equal(formatTransferJourneyEta(1), '1 sec left');
+  assert.equal(formatTransferJourneyEta(0), 'Finishing…');
   assert.equal(formatTransferJourneyEta(3_725), '1 hr 3 min left');
 });
 

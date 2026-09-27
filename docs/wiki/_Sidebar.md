@@ -5,6 +5,7 @@
 - [Google sign-in](Google-OAuth-Setup)
 - [Upload](Uploading)
 - [Download](Downloading)
+- [Trash and storage](Trash)
 - [Transfers and tray](Transfers)
 - [Troubleshooting](Troubleshooting)
 - [Privacy and security](Privacy-and-security)

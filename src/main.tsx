@@ -19,9 +19,14 @@ import { getUploadSelectionView } from './upload-planner-view.js';
 import { isDriveUploadEntrypoint } from './upload-entrypoint.js';
 import { bindTransferJourney, renderTransferJourney } from './transfer-journey.js';
 import { enhanceDriveMultiSelect, toggleDriveRowSelection } from './drive-multiselect.js';
+import { installDriveTrash } from './drive-trash.js';
+import { findDriveFileByName } from './drive-item-lookup.js';
 import { enhanceTransferHistory } from './history-live.js';
 import { enhanceTransferRecovery } from './transfer-recovery.js';
 import { getReleasePresentation } from './release-channel.js';
+import { getUpdateFeed, getUpdateFeeds } from './update-feeds.js';
+import { createUpdateChannelMenuState } from './update-channel-menu.js';
+import { renderFullscreenTransferCenter } from './fullscreen-transfer.js';
 import { gsap } from 'gsap';
 import { defineElement } from '@lordicon/element';
 defineElement();
@@ -200,6 +205,50 @@ function ciravaTransferSurface() {
   });
 }
 ciravaSchedule(ciravaTransferSurface);
+
+function ciravaFullscreenTransferCenter() {
+  const focusDialog = document.querySelector<HTMLElement>('.transfer-focus');
+  const layer = document.querySelector<HTMLElement>('.cirava-transfer-fullscreen-layer');
+  if (!focusDialog) { layer?.remove(); return; }
+  focusDialog.classList.add('cirava-transfer-hidden');
+  if (!layer) {
+    const fullscreen = document.createElement('section');
+    fullscreen.className = 'cirava-transfer-fullscreen-layer';
+    fullscreen.setAttribute('role', 'dialog');
+    fullscreen.setAttribute('aria-modal', 'true');
+    fullscreen.setAttribute('aria-label', 'Full-screen transfer center');
+    fullscreen.innerHTML = renderFullscreenTransferCenter();
+    document.body.append(fullscreen);
+    const closeFullscreen = () => {
+      fullscreen.remove();
+      focusDialog.querySelector<HTMLButtonElement>('.focus-close')?.click();
+      document.querySelector<HTMLButtonElement>('.page-actions [aria-label="Open full-screen transfer mode"]')?.focus();
+    };
+    fullscreen.querySelector<HTMLButtonElement>('[data-fullscreen-close]')?.addEventListener('click', closeFullscreen);
+    fullscreen.addEventListener('click', (event) => { if (event.target === fullscreen) closeFullscreen(); });
+    fullscreen.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeFullscreen(); });
+    fullscreen.querySelector<HTMLButtonElement>('[data-fullscreen-new-transfer]')?.addEventListener('click', () => {
+      closeFullscreen();
+      window.setTimeout(() => document.querySelector<HTMLElement>('.page .page-actions button:last-child')?.click(), 0);
+    });
+    const journey = fullscreen.querySelector<HTMLElement>('.transfer-journey');
+    if (journey) bindTransferJourney(
+      journey,
+      () => (window as any).pywebview?.api?.list_transfers?.(),
+      (transferId) => (window as any).pywebview?.api?.cancel_transfer?.(transferId),
+      (transferId) => (window as any).pywebview?.api?.pause_transfer?.(transferId),
+      (transferId) => (window as any).pywebview?.api?.resume_transfer?.(transferId),
+    );
+    fullscreen.querySelector<HTMLButtonElement>('[data-fullscreen-close]')?.focus();
+  }
+  const activeLayer = document.querySelector<HTMLElement>('.cirava-transfer-fullscreen-layer');
+  const sourceCounts = document.querySelectorAll<HTMLElement>('.page .transfer-overview-strip > div:not(.transfer-overview-note) strong');
+  const uploadCount = activeLayer?.querySelector<HTMLElement>('[data-fullscreen-upload-count]');
+  const downloadCount = activeLayer?.querySelector<HTMLElement>('[data-fullscreen-download-count]');
+  if (uploadCount && sourceCounts[0] && uploadCount.textContent !== sourceCounts[0].textContent) uploadCount.textContent = sourceCounts[0].textContent || '0';
+  if (downloadCount && sourceCounts[1] && downloadCount.textContent !== sourceCounts[1].textContent) downloadCount.textContent = sourceCounts[1].textContent || '0';
+}
+ciravaSchedule(ciravaFullscreenTransferCenter);
 
 function ciravaNavigateToTransfers() {
   const item = Array.from(document.querySelectorAll<HTMLElement>('.nav-item, [data-nav], [data-page]')).find((node) =>
@@ -700,11 +749,7 @@ ciravaSchedule(ciravaEnhanceDriveCreateMenus);
 
 function ciravaDriveApi() { return (window.pywebview?.api as any) || null; }
 async function ciravaDriveFileByName(name: string) {
-  const api = ciravaDriveApi();
-  if (!api?.list_drive_files) return null;
-  const result = await api.list_drive_files();
-  const item = (result?.files || []).find((file: any) => file.name === name);
-  return item ? { ...item, type: item.mimeType === 'application/vnd.google-apps.folder' ? 'folder' : 'file', size: item.size || '—' } : null;
+  return findDriveFileByName(ciravaDriveApi(), name);
 }
 function ciravaRefreshDrive() {
   const refresh = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((button) => /refresh/i.test(`${button.textContent} ${button.getAttribute('aria-label') || ''} ${button.title || ''}`));
@@ -1009,7 +1054,7 @@ requestAnimationFrame(ciravaHomeOrbit);
 /* Keep release labels and About details aligned with the channel embedded at build time. */
 function ciravaSyncCandidateVersion() {
   const env = (import.meta as any).env || {};
-const version = env.VITE_CIRAVA_APP_VERSION || env.VITE_CIRAVA_VERSION || '1.1.2';
+const version = env.VITE_CIRAVA_APP_VERSION || env.VITE_CIRAVA_VERSION || '1.1.3';
   const presentation = getReleasePresentation(version, env.VITE_CIRAVA_APP_CHANNEL);
   document.querySelectorAll<HTMLElement>('.about-fact').forEach((fact) => {
     if (fact.querySelector('span')?.textContent?.trim() === 'Version') {
@@ -1034,12 +1079,11 @@ function ciravaUpdateScreen() {
   if (document.documentElement.dataset.ciravaUpdateBound) return;
   document.documentElement.dataset.ciravaUpdateBound = 'true';
   const env = (import.meta as any).env || {};
-  const manifestUrls = {
-    release: env.VITE_CIRAVA_STABLE_MANIFEST_URL || env.VITE_CIRAVA_UPDATE_MANIFEST_URL || '',
-    beta: env.VITE_CIRAVA_BETA_RELEASES_API_URL || '',
-  };
-const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.1.2';
+  const manifestUrls = getUpdateFeeds(env);
+  const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.1.3';
   const initialChannel = env.VITE_CIRAVA_APP_CHANNEL === 'beta' ? 'beta' : 'release';
+  const channelMenuState = createUpdateChannelMenuState(initialChannel);
+  let selectedChannel = channelMenuState.selected;
   document.addEventListener('click', async (event) => {
     const target = event.target instanceof Element ? event.target : null;
     const button = target?.closest<HTMLButtonElement>('.about-page button');
@@ -1057,13 +1101,67 @@ const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.1.2';
     mark.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5"/><path d="M5 16v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg>';
     const kicker = document.createElement('span'); kicker.className = 'cirava-update-kicker'; kicker.textContent = 'CIRAVA · SECURE UPDATES';
     const version = document.createElement('span'); version.className = 'cirava-update-version'; version.textContent = `v${currentVersion}`;
-    const channelSelect = document.createElement('select'); channelSelect.className = 'cirava-update-channel'; channelSelect.setAttribute('aria-label', 'Update channel');
-    channelSelect.innerHTML = '<option value="release">Stable release</option><option value="beta">Beta releases</option>';
-    channelSelect.value = initialChannel;
-    const channelField = document.createElement('label'); channelField.className = 'cirava-update-channel-field';
+    const channelField = document.createElement('div'); channelField.className = 'cirava-update-channel-field';
+    channelField.setAttribute('role', 'group'); channelField.setAttribute('aria-label', 'Release channel');
     const channelLabel = document.createElement('span'); channelLabel.textContent = 'Release channel';
-    channelField.hidden = !manifestUrls.release || !manifestUrls.beta;
-    channelField.append(channelLabel, channelSelect);
+    const channelControl = document.createElement('div'); channelControl.className = 'cirava-update-channel-control';
+    const channelTrigger = document.createElement('button'); channelTrigger.type = 'button';
+    channelTrigger.className = 'cirava-update-channel-trigger'; channelTrigger.setAttribute('role', 'combobox');
+    channelTrigger.setAttribute('aria-label', 'Update channel'); channelTrigger.setAttribute('aria-haspopup', 'listbox');
+    channelTrigger.setAttribute('aria-expanded', 'false');
+    const channelMenu = document.createElement('div'); channelMenu.className = 'cirava-update-channel-menu';
+    channelMenu.id = 'cirava-update-channel-menu'; channelMenu.setAttribute('role', 'listbox');
+    channelMenu.hidden = true;
+    const channelOptions = new Map<'release' | 'beta', HTMLButtonElement>();
+    for (const [value, label] of [['release', 'Stable release'], ['beta', 'Beta releases']] as const) {
+      const option = document.createElement('button'); option.type = 'button';
+      option.className = 'cirava-update-channel-option'; option.dataset.channel = value;
+      option.setAttribute('role', 'option'); option.tabIndex = -1; option.textContent = label;
+      channelOptions.set(value, option); channelMenu.append(option);
+    }
+    channelTrigger.setAttribute('aria-controls', channelMenu.id);
+    const renderChannelMenu = () => {
+      channelTrigger.textContent = channelMenuState.selected === 'beta' ? 'Beta releases' : 'Stable release';
+      channelTrigger.setAttribute('aria-expanded', String(channelMenuState.open));
+      channelMenu.hidden = !channelMenuState.open;
+      for (const [value, option] of channelOptions) option.setAttribute('aria-selected', String(channelMenuState.selected === value));
+    };
+    const focusSelectedChannel = () => channelOptions.get(channelMenuState.selected)?.focus();
+    renderChannelMenu();
+    channelTrigger.addEventListener('click', () => {
+      channelMenuState.toggle(); renderChannelMenu();
+      if (channelMenuState.open) focusSelectedChannel();
+    });
+    channelTrigger.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        if (!channelMenuState.open) { channelMenuState.show(); renderChannelMenu(); focusSelectedChannel(); }
+      }
+    });
+    channelMenu.addEventListener('keydown', (event) => {
+      const options = [...channelOptions.values()];
+      const current = options.indexOf(document.activeElement as HTMLButtonElement);
+      let next = current;
+      if (event.key === 'ArrowDown') next = (current + 1) % options.length;
+      else if (event.key === 'ArrowUp') next = (current - 1 + options.length) % options.length;
+      else if (event.key === 'Home') next = 0;
+      else if (event.key === 'End') next = options.length - 1;
+      else if (event.key === 'Tab') {
+        channelMenuState.close(); renderChannelMenu(); return;
+      } else return;
+      event.preventDefault(); options[next]?.focus();
+    });
+    channelMenu.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-channel]') : null;
+      if (!target) return;
+      const chosen = channelMenuState.select(target.dataset.channel || '');
+      selectedChannel = chosen;
+      renderChannelMenu(); closeModal(); window.setTimeout(() => button.click(), 0);
+    });
+    const channelFieldOutsidePointer = (event: PointerEvent) => {
+      if (!channelField.contains(event.target as Node)) { channelMenuState.close(); renderChannelMenu(); }
+    };
+    channelField.append(channelLabel, channelControl); channelControl.append(channelTrigger, channelMenu);
     identity.append(mark, kicker, version);
     const title = document.createElement('h2'); title.id = 'cirava-update-title'; title.textContent = 'Keeping Cirava current';
     const copy = document.createElement('p'); copy.className = 'cirava-update-copy';
@@ -1076,24 +1174,30 @@ const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.1.2';
     const primary = document.createElement('button'); primary.className = 'primary';
     const closeModal = () => backdrop.remove();
     close.addEventListener('click', closeModal); cancel.addEventListener('click', closeModal);
-    channelSelect.addEventListener('change', () => { closeModal(); window.setTimeout(() => button.click(), 0); });
+    backdrop.addEventListener('pointerdown', channelFieldOutsidePointer);
+    dialog.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      if (channelMenuState.escape()) { closeModal(); return; }
+      renderChannelMenu(); channelTrigger.focus();
+    });
     backdrop.addEventListener('click', (click) => { if (click.target === backdrop) closeModal(); });
     actions.append(trust, cancel, primary); dialog.append(close, identity, title, copy, channelField, progress, notes, actions); backdrop.append(dialog); document.body.append(backdrop);
     const setStatus = (heading: string, message: string, busy: boolean) => {
       title.textContent = heading; copy.textContent = message; progress.classList.toggle('is-busy', busy);
-      progress.classList.toggle('is-idle', !busy); progress.textContent = busy ? ' ' : ''; primary.disabled = busy;
+      progress.classList.toggle('is-idle', !busy); progress.textContent = busy ? ' ' : ''; primary.disabled = busy; channelTrigger.disabled = busy;
     };
-    if ((!manifestUrls.release && !manifestUrls.beta) || !bridge?.check_for_update) {
-      setStatus('Updates aren’t configured yet', 'This test build isn’t connected to a release feed yet. Your files and settings are safe; nothing will be downloaded.', false);
+    if (!bridge?.check_for_update) {
+      setStatus('Updater unavailable', 'Release feeds are ready, but this preview has no desktop updater attached. Open Cirava to check and install updates.', false);
       primary.hidden = true; return;
     }
     primary.hidden = true; setStatus('Checking for updates', 'Contacting the Cirava release feed securely…', true);
-    channelSelect.disabled = true;
+    channelTrigger.disabled = true;
     try {
-      let manifestUrl = manifestUrls[channelSelect.value as 'release' | 'beta'] || manifestUrls.release || manifestUrls.beta;
+      const manifestUrl = getUpdateFeed(selectedChannel, manifestUrls);
       if (!manifestUrl) throw new Error('This update channel is not configured.');
       const result = await bridge.check_for_update(manifestUrl, currentVersion);
-      channelSelect.disabled = false;
+      channelTrigger.disabled = false;
       if (!result.available) {
         setStatus('You’re up to date', `Cirava ${currentVersion} is the latest available version.`, false); return;
       }
@@ -1133,7 +1237,7 @@ const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.1.2';
         }
       };
     } catch (error) {
-      channelSelect.disabled = false;
+      channelTrigger.disabled = false;
       setStatus('Couldn’t check for updates', error instanceof Error ? error.message : 'Check your connection and try again.', false);
     }
   }, true);
@@ -1369,6 +1473,7 @@ const ciravaEnhancementObserver = new MutationObserver(() => {
     ciravaDiagnosticsMotion();
     ciravaScanMotion();
     ciravaTransferSurface();
+    ciravaFullscreenTransferCenter();
     ciravaInstallDirectUploadEntrypoints();
     ciravaUploadPlannerControls();
     ciravaTestUploadControl();
@@ -1377,6 +1482,7 @@ const ciravaEnhancementObserver = new MutationObserver(() => {
     ciravaNormalizeDriveCreateMenus();
     ciravaEnhanceDriveCreateMenus();
     ciravaEnhanceDriveRows();
+    installDriveTrash();
     enhanceDriveMultiSelect();
     enhanceTransferHistory();
     enhanceTransferRecovery();
@@ -1387,3 +1493,4 @@ const ciravaEnhancementObserver = new MutationObserver(() => {
   });
 });
 ciravaEnhancementObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+requestAnimationFrame(installDriveTrash);

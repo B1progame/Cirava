@@ -1,5 +1,6 @@
 import base64
 import io
+import json
 import tempfile
 import unittest
 import urllib.error
@@ -24,13 +25,13 @@ class GoogleProtocolTests(unittest.TestCase):
         session = OAuthSession(OAuthConfig(client_id="desktop-client"), opener=lambda _: None)
         self.assertEqual(session.config.redirect_port, 0)
 
-    def test_desktop_authorization_uses_pkce_and_minimum_drive_scope(self):
+    def test_desktop_authorization_uses_pkce_and_full_drive_scope(self):
         session = OAuthSession(OAuthConfig(client_id="desktop-client", redirect_host="127.0.0.1"), opener=lambda _: None)
         url = session.authorization_url()
         query = parse_qs(urlparse(url).query)
         self.assertEqual(query["client_id"], ["desktop-client"])
         self.assertEqual(query["access_type"], ["offline"])
-        self.assertEqual(query["scope"], ["https://www.googleapis.com/auth/drive.file"])
+        self.assertEqual(query["scope"], ["https://www.googleapis.com/auth/drive"])
         self.assertEqual(query["code_challenge_method"], ["S256"])
         self.assertTrue(query["code_challenge"][0])
         self.assertTrue(query["state"][0])
@@ -112,6 +113,58 @@ class GoogleProtocolTests(unittest.TestCase):
         client.list_files = page
         self.assertEqual(client.list_all_files()["files"], [{"id": "one"}, {"id": "two"}])
         self.assertEqual(calls, [None, "page-2"])
+
+    def test_exact_name_lookup_searches_across_folders_and_pages_results(self):
+        client = DriveApiClient("token")
+        captured = []
+        pages = [b'{"nextPageToken":"next","files":[{"id":"one","name":"dummy.bin"}]}', b'{"files":[{"id":"two","name":"dummy.bin"}]}']
+        client._request = lambda url, **kwargs: captured.append(url) or (200, {}, pages[len(captured) - 1])
+
+        self.assertEqual(client.find_files_by_name("dummy.bin"), [
+            {"id": "one", "name": "dummy.bin"}, {"id": "two", "name": "dummy.bin"},
+        ])
+        first = parse_qs(urlparse(captured[0]).query)
+        second = parse_qs(urlparse(captured[1]).query)
+        self.assertEqual(first["q"], ["name = 'dummy.bin' and trashed = false"])
+        self.assertNotIn("parents", first["q"][0])
+        self.assertEqual(second["pageToken"], ["next"])
+
+    def test_trash_listing_queries_all_pages_without_parent_filter(self):
+        client = DriveApiClient("token")
+        captured = []
+        pages = [b'{"nextPageToken":"next","files":[{"id":"one"}]}', b'{"files":[{"id":"two"}]}']
+        client._request = lambda url, **kwargs: captured.append(url) or (200, {}, pages[len(captured) - 1])
+
+        self.assertEqual(client.list_trashed_files(), {"files": [{"id": "one"}, {"id": "two"}]})
+        first = parse_qs(urlparse(captured[0]).query)
+        second = parse_qs(urlparse(captured[1]).query)
+        self.assertEqual(first["q"], ["trashed = true"])
+        self.assertNotIn("parents", first["q"][0])
+        self.assertEqual(first["includeItemsFromAllDrives"], ["true"])
+        self.assertEqual(second["pageToken"], ["next"])
+
+    def test_restore_file_clears_trashed_flag_and_empty_trash_uses_drive_endpoint(self):
+        client = DriveApiClient("token")
+        captured = []
+        client._request = lambda url, **kwargs: captured.append((url, kwargs)) or (204, {}, b"")
+
+        client.restore_file("trashed-1")
+        client.empty_trash()
+
+        self.assertEqual(captured[0][1]["method"], "PATCH")
+        self.assertEqual(json.loads(captured[0][1]["body"]), {"trashed": False})
+        self.assertIn("/files/trashed-1", captured[0][0])
+        self.assertEqual(captured[1][1]["method"], "DELETE")
+        self.assertIn("/files/trash", captured[1][0])
+
+    def test_storage_quota_reads_used_and_trash_bytes_from_drive_about(self):
+        client = DriveApiClient("token")
+        captured = []
+        client._request = lambda url, **kwargs: captured.append(url) or (200, {}, b'{"storageQuota":{"limit":"1000","usage":"400","usageInDrive":"350","usageInDriveTrash":"50"}}')
+
+        self.assertEqual(client.storage_quota(), {"limit": "1000", "usage": "400", "usageInDrive": "350", "usageInDriveTrash": "50"})
+        self.assertIn("/about?", captured[0])
+        self.assertIn("storageQuota", parse_qs(urlparse(captured[0]).query)["fields"][0])
 
     def test_shared_drive_listing_uses_all_drives_parameters(self):
         client = DriveApiClient("token")

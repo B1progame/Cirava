@@ -4,6 +4,8 @@
 
 Open the [latest release](https://github.com/B1progame/Cirava/releases/latest). Choose `Cirava-Setup-<version>.exe` for the Windows installer, or `Cirava.exe` for the standalone app. Start Cirava from the Windows profile you plan to use; its saved Google credentials are protected for that Windows user.
 
+The current stable release is **Cirava 1.1.3**. The installer is optional; the standalone app is also available on the release page.
+
 ## Connect Drive
 
 On first launch, Cirava asks for a Google OAuth Desktop client ID. Create one by following [Google sign-in setup](Google-OAuth-Setup), then paste the full ID into Cirava.

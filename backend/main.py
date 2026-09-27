@@ -164,7 +164,8 @@ class CiravaApi:
         self._notifier.notify(heading, f"{record.filename} completed successfully")
 
     def boot_state(self) -> dict:
-        return {"configured": self._oauth_config is not None or bool(self._setting("client_id")), "authenticated": self.tokens.load() is not None, "transfers": [record.to_dict() for record in self.store.list()]}
+        tokens = self.tokens.load() or {}
+        return {"configured": self._oauth_config is not None or bool(self._setting("client_id")), "authenticated": tokens.get("cirava_scope_version") == 2, "transfers": [record.to_dict() for record in self.store.list()]}
 
     def save_google_configuration(self, client_id: str, client_secret: str | None = None) -> dict:
         if ".apps.googleusercontent.com" not in client_id or len(client_id) < 30:
@@ -205,6 +206,7 @@ class CiravaApi:
             if not config.client_id:
                 raise RuntimeError("Google configuration is missing")
             tokens = OAuthSession(config).login()
+            tokens["cirava_scope_version"] = 2
             self.tokens.save(tokens)
             return {"ok": True, "authenticated": True}
 
@@ -289,6 +291,28 @@ class CiravaApi:
     def list_drive_files(self, parent_id: str = "root", query: str | None = None) -> dict:
         shared_drive_id = self._setting("shared_drive_id") or None
         return self._drive().list_all_files(parent_id=parent_id, query=query, shared_drive_id=shared_drive_id)
+
+    def find_drive_files_by_name(self, name: str) -> dict:
+        if not name or not name.strip():
+            raise ValueError("Drive file name is required")
+        shared_drive_id = self._setting("shared_drive_id") or None
+        return {"files": self._drive().find_files_by_name(name, shared_drive_id=shared_drive_id)}
+
+    def list_trashed_drive_files(self) -> dict:
+        return self._drive().list_trashed_files()
+
+    def restore_drive_file(self, drive_file_id: str) -> dict:
+        if not drive_file_id:
+            raise ValueError("Drive file ID is required")
+        self._drive().restore_file(drive_file_id)
+        return {"id": drive_file_id, "status": "restored"}
+
+    def empty_drive_trash(self) -> dict:
+        self._drive().empty_trash()
+        return {"status": "emptied"}
+
+    def get_storage_quota(self) -> dict:
+        return self._drive().storage_quota()
 
     def list_shared_drives(self) -> dict:
         return self._drive().list_shared_drives()

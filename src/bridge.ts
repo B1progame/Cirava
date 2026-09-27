@@ -13,6 +13,11 @@ export type CiravaBridge = {
   summarize_local_paths: (localPaths: string[]) => Promise<{ files: number; folders: number; bytes: number; items: number }>;
   create_test_upload: (parentId?: string, chunkSize?: number) => Promise<unknown[]>;
   list_drive_files: (parentId?: string, query?: string) => Promise<unknown>;
+  find_drive_files_by_name: (name: string) => Promise<{ files: Array<Record<string, any>> }>;
+  list_trashed_drive_files: () => Promise<{ files?: Array<Record<string, unknown>> }>;
+  restore_drive_file: (driveFileId: string) => Promise<{ id: string; status: string }>;
+  empty_drive_trash: () => Promise<{ status: string }>;
+  get_storage_quota: () => Promise<{ limit?: string; usage?: string; usageInDrive?: string; usageInDriveTrash?: string }>;
   list_shared_drives: () => Promise<{ drives?: Array<{ id: string; name: string }> }>;
   select_shared_drive: (driveId?: string) => Promise<{ shared_drive_id: string | null }>;
   create_drive_folder: (name: string, parentId?: string) => Promise<{ id: string; name: string; parent_id: string }>;
@@ -42,9 +47,25 @@ export type CiravaBridge = {
   measure_connection_speed: (sampleBytes?: number) => Promise<{ bytes: number; seconds: number; mbps: number; mib_per_second: number }>;
   get_upload_concurrency: () => Promise<{ workers: number }>;
   set_upload_concurrency: (workers: number) => Promise<{ workers: number }>;
-  check_for_update: (manifestUrl: string, currentVersion?: string) => Promise<{ available: boolean; version: string; current_version: string; release_notes: string[] }>;
-  stage_update: (manifestUrl: string, currentVersion?: string) => Promise<{ staged: boolean; path: string; version: string }>;
-  restart_staged_update: (stagedPath: string) => Promise<{ started: boolean; path: string }>;
+  check_for_update: (manifestUrl: string, currentVersion?: string) => Promise<{
+    available: boolean;
+    version: string;
+    current_version: string;
+    release_notes: string[];
+    update_type: 'installer' | 'in_place';
+    in_place_available: boolean;
+  }>;
+  stage_update: (manifestUrl: string, currentVersion?: string) => Promise<{
+    staged: boolean;
+    path: string;
+    version: string;
+    update_type: 'installer' | 'in_place';
+  }>;
+  restart_staged_update: (stagedPath: string, updateType: 'installer' | 'in_place') => Promise<{
+    started: boolean;
+    path: string;
+    update_type: 'installer' | 'in_place';
+  }>;
 };
 
 declare global {
