@@ -4,9 +4,9 @@
   <p><strong>Your files, in motion.</strong><br>
   A calmer, more resilient way to move files through Google Drive.</p>
   <p>
-    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/STABLE-v1.1.1-6079ed?style=for-the-badge" alt="Latest stable release: v1.1.1"></a>
+    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/STABLE-v1.1.2-6079ed?style=for-the-badge" alt="Latest stable release: v1.1.2"></a>
     <img src="https://img.shields.io/badge/platform-Windows-2aa995?style=for-the-badge" alt="Windows desktop app">
-    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/download-v1.1.1-28344d?style=for-the-badge" alt="Download Cirava 1.1.1"></a>
+    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/download-v1.1.2-28344d?style=for-the-badge" alt="Download Cirava 1.1.2"></a>
   </p>
 </div>
 
@@ -26,9 +26,11 @@ Cirava is a focused Windows desktop client for Google Drive. Uploads and downloa
 
 ## Get Cirava
 
-**[Download Cirava v1.1.1 for Windows](https://github.com/B1progame/Cirava/releases/latest)** from GitHub Releases. Choose `Cirava-Setup-1.1.1.exe` for the guided installer or `Cirava.exe` for the standalone app. The release also includes `update-manifest.json` for checksum-verified in-app updates.
+**[Download Cirava v1.1.2 for Windows](https://github.com/B1progame/Cirava/releases/latest)** from GitHub Releases. Choose `Cirava-Setup-1.1.2.exe` for the guided installer or `Cirava.exe` for the standalone app. The release also includes `update-manifest.json` for checksum-verified in-app updates.
 
 Cirava connects with a Google **Desktop OAuth client**. Follow the [Google setup guide](GOOGLE_SETUP.md) to configure the client ID and Drive API access. Cirava never asks for your Google password.
+
+New to Cirava? The [Cirava wiki](https://github.com/B1progame/Cirava/wiki) walks through setup, uploads, downloads, transfer controls, and common fixes.
 
 ## Build it yourself
 

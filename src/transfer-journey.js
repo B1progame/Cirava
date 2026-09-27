@@ -55,6 +55,7 @@ export function getTransferJourneySummary(transfers) {
     transferredBytes: 0,
     totalBytes: 0,
     speedBps: 0,
+    etaSeconds: null,
     progressPercent: 0,
     state: 'Idle',
   };
@@ -73,13 +74,20 @@ export function getTransferJourneySummary(transfers) {
     ? sum + Math.max(0, Number(item.speedBps ?? item.speed_bps) || 0)
     : sum, 0);
   const moving = active.filter((item) => item.status === 'transferring');
-  const state = moving.length && moving.every((item) => (Number(item.bytesTransferred ?? item.bytes_transferred) || 0) === 0 && (Number(item.speedBps ?? item.speed_bps) || 0) === 0) ? 'Starting transfer'
-    : moving.length ? 'Transferring'
-    : active.some((item) => item.status === 'waiting-for-network') ? 'Waiting for connection'
-      : active.some((item) => item.status === 'rate-limited') ? 'Pacing the transfer'
-        : active.some((item) => item.status === 'verifying') ? 'Finishing up'
-          : active.some((item) => item.status === 'queued' || item.status === 'preparing') ? 'Preparing transfer'
-            : 'Paused';
+  const starting = moving.length && moving.every((item) => (Number(item.bytesTransferred ?? item.bytes_transferred) || 0) === 0 && (Number(item.speedBps ?? item.speed_bps) || 0) === 0);
+  const retrying = moving.find((item) => Number(item.retryCount ?? item.retry_count) > 0);
+  const movingDirections = new Set(moving.map((item) => item.direction ?? item.kind));
+  const state = active.some((item) => item.status === 'waiting-for-network') ? 'Waiting for connection'
+    : active.some((item) => item.status === 'rate-limited') ? 'Pacing the transfer'
+      : active.some((item) => item.status === 'verifying') ? 'Finishing up'
+        : starting && retrying ? `Retrying upload · retry ${Number(retrying.retryCount ?? retrying.retry_count)}`
+          : starting && movingDirections.size === 1 && movingDirections.has('upload')
+            ? moving.every((item) => item.uploadSessionUrl ?? item.upload_session_url) ? 'Starting upload' : 'Connecting to Drive'
+            : starting && movingDirections.size === 1 && movingDirections.has('download') ? 'Starting download'
+              : moving.length ? 'Transferring'
+                : active.some((item) => item.status === 'preparing') ? 'Connecting to Drive'
+                  : active.some((item) => item.status === 'queued') ? 'Waiting to start'
+                    : 'Paused';
 
   return {
     visible: true,
@@ -87,6 +95,9 @@ export function getTransferJourneySummary(transfers) {
     transferredBytes,
     totalBytes,
     speedBps,
+    etaSeconds: speedBps > 0 && totalBytes > transferredBytes
+      ? Math.ceil((totalBytes - transferredBytes) / speedBps)
+      : null,
     progressPercent: totalBytes > 0 ? Math.round((transferredBytes / totalBytes) * 1000) / 10 : 0,
     state,
   };
@@ -100,6 +111,20 @@ export function formatTransferJourneyBytes(value) {
   let unit = 0;
   while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1; }
   return `${size >= 100 ? Math.round(size) : size.toFixed(1)} ${units[unit]}`;
+}
+
+export function formatTransferJourneyEta(seconds) {
+  if (seconds == null) return 'Calculating…';
+  const remainingSeconds = Number(seconds);
+  if (!Number.isFinite(remainingSeconds) || remainingSeconds < 0) return 'Calculating…';
+  if (remainingSeconds < 60) return 'Less than a minute left';
+  const totalMinutes = Math.ceil(remainingSeconds / 60);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days) return `${days} day${days === 1 ? '' : 's'}${hours ? ` ${hours} hr` : ''} left`;
+  if (hours) return `${hours} hr${minutes ? ` ${minutes} min` : ''} left`;
+  return `${totalMinutes} min left`;
 }
 
 function renderPacket(direction, kind, phase) {
@@ -168,6 +193,7 @@ export function renderTransferJourney() {
         <div><span>Live speed</span><strong data-live-speed>0 B/s</strong></div>
         <div><span>Transferred</span><strong><span data-live-bytes>0 B</span><small> / <span data-live-total>0 B</span></small></strong></div>
         <div><span>Files in queue</span><strong data-live-file-count>0</strong></div>
+        <div><span>Time remaining</span><strong data-live-eta>Calculating…</strong></div>
       </div>
       <div class="transfer-live-progress-row"><div class="transfer-live-progress" role="progressbar" aria-label="Overall transfer progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span data-live-progress-fill></span></div><span data-live-progress-label>0%</span></div>
     </div>
@@ -263,6 +289,7 @@ export function bindTransferJourney(section, listTransfers, cancelTransfer, paus
     setText('[data-live-state]', totals.state);
     setText('[data-live-files]', `${totals.fileCount} ${totals.fileCount === 1 ? 'file' : 'files'}`);
     setText('[data-live-speed]', `${formatTransferJourneyBytes(totals.speedBps)}/s`);
+    setText('[data-live-eta]', formatTransferJourneyEta(totals.etaSeconds));
     setText('[data-live-bytes]', formatTransferJourneyBytes(totals.transferredBytes));
     setText('[data-live-total]', formatTransferJourneyBytes(totals.totalBytes));
     setText('[data-live-file-count]', String(totals.fileCount));

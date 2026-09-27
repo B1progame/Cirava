@@ -14,6 +14,7 @@ import { bindHoldToConfirm } from './hold-to-confirm.js';
 import { renderDriveFolderPicker } from './drive-folder-picker.js';
 import { createUploadBatch } from './upload-batch.js';
 import { startUploadWithFeedback } from './upload-start.js';
+import { scheduleTransientUploadNoticeDismissal } from './transient-upload-notice.js';
 import { getUploadSelectionView } from './upload-planner-view.js';
 import { isDriveUploadEntrypoint } from './upload-entrypoint.js';
 import { bindTransferJourney, renderTransferJourney } from './transfer-journey.js';
@@ -517,7 +518,7 @@ function ciravaOpenDirectUploadPlanner() {
 }
 
 function ciravaInstallDirectUploadEntrypoints() {
-  document.querySelectorAll<HTMLElement>('.upload-intent, .plus-control, [data-transfer-action="upload"], .heading-actions button, .page-heading .page-actions button').forEach((target) => {
+  document.querySelectorAll<HTMLElement>('.upload-intent, .plus-control, [data-transfer-action="upload"], .heading-actions button, .page-heading .page-actions button, .drive-empty button').forEach((target) => {
     const isUploadIntent = target.matches('.upload-intent, .plus-control, [data-transfer-action="upload"]');
     if (!isUploadIntent && !isDriveUploadEntrypoint(target)) return;
     if (target.dataset.ciravaDirectUploadReady === 'true') return;
@@ -574,7 +575,26 @@ function ciravaTestUploadControl() {
 }
 function ciravaClarifyTestModeError() {
   document.querySelectorAll<HTMLElement>('.toast.error').forEach((toast) => {
-    if (toast.textContent?.includes('Test data is disabled')) toast.textContent = 'The 20 GB test upload is disabled. Enable test data in Settings, or choose local files to upload. This test file uses your Google Drive storage quota.';
+    if (toast.textContent?.includes('Test data is disabled')) {
+      const message = 'The 20 GB test upload is disabled. Enable test data in Settings, or choose local files to upload. This test file uses your Google Drive storage quota.';
+      const walker = document.createTreeWalker(toast, NodeFilter.SHOW_TEXT);
+      let textNode: Node | null;
+      let updated = false;
+      while ((textNode = walker.nextNode())) {
+        if (textNode.textContent?.includes('Test data is disabled')) {
+          textNode.textContent = message;
+          updated = true;
+          break;
+        }
+      }
+      if (!updated) {
+        const dismiss = toast.querySelector<HTMLButtonElement>('button[aria-label="Dismiss error"]');
+        toast.insertBefore(document.createTextNode(message), dismiss);
+      }
+    }
+    if (toast.textContent?.includes('The 20 GB test upload is disabled')) {
+      scheduleTransientUploadNoticeDismissal(toast, (callback, delay) => window.setTimeout(callback, delay));
+    }
   });
 }
 ciravaSchedule(ciravaTestUploadControl);
@@ -989,7 +1009,7 @@ requestAnimationFrame(ciravaHomeOrbit);
 /* Keep release labels and About details aligned with the channel embedded at build time. */
 function ciravaSyncCandidateVersion() {
   const env = (import.meta as any).env || {};
-const version = env.VITE_CIRAVA_APP_VERSION || env.VITE_CIRAVA_VERSION || '1.1.1';
+const version = env.VITE_CIRAVA_APP_VERSION || env.VITE_CIRAVA_VERSION || '1.1.2';
   const presentation = getReleasePresentation(version, env.VITE_CIRAVA_APP_CHANNEL);
   document.querySelectorAll<HTMLElement>('.about-fact').forEach((fact) => {
     if (fact.querySelector('span')?.textContent?.trim() === 'Version') {
@@ -1018,7 +1038,7 @@ function ciravaUpdateScreen() {
     release: env.VITE_CIRAVA_STABLE_MANIFEST_URL || env.VITE_CIRAVA_UPDATE_MANIFEST_URL || '',
     beta: env.VITE_CIRAVA_BETA_RELEASES_API_URL || '',
   };
-const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.1.1';
+const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.1.2';
   const initialChannel = env.VITE_CIRAVA_APP_CHANNEL === 'beta' ? 'beta' : 'release';
   document.addEventListener('click', async (event) => {
     const target = event.target instanceof Element ? event.target : null;

@@ -17,3 +17,11 @@ test('Drive header tools other than Upload are not intercepted', () => {
   };
   assert.equal(isDriveUploadEntrypoint(refreshButton), false);
 });
+
+test('empty-folder Upload files action opens the same upload planner', () => {
+  const emptyFolderUploadButton = {
+    textContent: ' Upload files ',
+    matches: (selector) => selector.includes('.drive-empty button'),
+  };
+  assert.equal(isDriveUploadEntrypoint(emptyFolderUploadButton), true);
+});

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getCancellableUploadIds, getPausableUploadIds, getResumableUploadIds, getTransferJourneyActivity, getTransferJourneyFrame, getTransferJourneyPathProgress, getTransferJourneySummary, getTransferJourneyViewBox, renderTransferJourney } from '../src/transfer-journey.js';
+import { formatTransferJourneyEta, getCancellableUploadIds, getPausableUploadIds, getResumableUploadIds, getTransferJourneyActivity, getTransferJourneyFrame, getTransferJourneyPathProgress, getTransferJourneySummary, getTransferJourneyViewBox, renderTransferJourney } from '../src/transfer-journey.js';
 
 test('empty transfer state presents a labeled route with hidden SVG file packets', () => {
   const html = renderTransferJourney();
@@ -82,6 +82,7 @@ test('live summary aggregates active queue files, transferred bytes, total bytes
     transferredBytes: 650,
     totalBytes: 3_500,
     speedBps: 120,
+    etaSeconds: 24,
     progressPercent: 18.6,
     state: 'Transferring',
   });
@@ -97,9 +98,23 @@ test('live summary hides when there are no in-progress queue files', () => {
     transferredBytes: 0,
     totalBytes: 0,
     speedBps: 0,
+    etaSeconds: null,
     progressPercent: 0,
     state: 'Idle',
   });
+});
+
+test('ETA uses aggregate active throughput and remaining bytes; formatting stays readable', () => {
+  const summary = getTransferJourneySummary([
+    { status: 'transferring', direction: 'upload', size: 10_000, bytes_transferred: 2_000, speed_bps: 400 },
+    { status: 'transferring', direction: 'upload', size: 20_000, bytes_transferred: 5_000, speed_bps: 600 },
+  ]);
+  assert.equal(summary.etaSeconds, 23);
+  assert.equal(formatTransferJourneyEta(summary.etaSeconds), 'Less than a minute left');
+  assert.equal(formatTransferJourneyEta(60), '1 min left');
+  assert.equal(formatTransferJourneyEta(null), 'Calculating…');
+  assert.equal(formatTransferJourneyEta(8), 'Less than a minute left');
+  assert.equal(formatTransferJourneyEta(3_725), '1 hr 3 min left');
 });
 
 test('a paused upload is not reported as moving and remains cancellable from the transfer panel', () => {
@@ -109,7 +124,7 @@ test('a paused upload is not reported as moving and remains cancellable from the
     { id: 'paused-download', direction: 'download', status: 'paused', size: 4_000 },
     { id: 'done-upload', direction: 'upload', status: 'completed', size: 100 },
   ];
-  assert.equal(getTransferJourneySummary(transfers).state, 'Preparing transfer');
+  assert.equal(getTransferJourneySummary(transfers).state, 'Waiting to start');
   assert.equal(getTransferJourneyActivity(transfers).upload, false);
   assert.deepEqual(getCancellableUploadIds(transfers), ['paused-upload', 'queued-upload']);
   const html = renderTransferJourney();
@@ -132,7 +147,25 @@ test('transfer actions target only uploads in supported states', () => {
 test('a zero-byte transfer is reported as starting instead of falsely implying data is moving', () => {
   assert.equal(getTransferJourneySummary([
     { direction: 'upload', status: 'transferring', size: 5_000, bytes_transferred: 0, speed_bps: 0 },
-  ]).state, 'Starting transfer');
+  ]).state, 'Connecting to Drive');
+});
+
+test('upload startup reports the current preparation and first-chunk steps', () => {
+  assert.equal(getTransferJourneySummary([
+    { direction: 'upload', status: 'queued', size: 5_000 },
+  ]).state, 'Waiting to start');
+  assert.equal(getTransferJourneySummary([
+    { direction: 'upload', status: 'preparing', size: 5_000 },
+  ]).state, 'Connecting to Drive');
+  assert.equal(getTransferJourneySummary([
+    { direction: 'upload', status: 'transferring', size: 5_000, upload_session_url: 'https://drive/session' },
+  ]).state, 'Starting upload');
+});
+
+test('an upload retry is visible in the live transfer status', () => {
+  assert.equal(getTransferJourneySummary([
+    { direction: 'upload', status: 'transferring', size: 5_000, retry_count: 2 },
+  ]).state, 'Retrying upload · retry 2');
 });
 
 test('the route markup has a live progress summary beneath its animation', () => {
@@ -140,6 +173,7 @@ test('the route markup has a live progress summary beneath its animation', () =>
   assert.match(html, /class="transfer-live-summary" data-live-visible="false"/);
   assert.ok(html.indexOf('class="transfer-journey-art"') < html.indexOf('class="transfer-live-summary"'));
   assert.match(html, /data-live-speed/);
+  assert.match(html, /data-live-eta/);
   assert.match(html, /data-live-bytes/);
   assert.match(html, /data-live-files/);
   assert.match(html, /role="progressbar"/);
