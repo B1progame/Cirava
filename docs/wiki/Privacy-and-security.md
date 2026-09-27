@@ -2,7 +2,7 @@
 
 Cirava signs in through Google's desktop OAuth flow with authorization code and PKCE. Its current Drive features request the full `drive` scope so the app can list every item in Trash, restore items, permanently empty Trash, and report account storage usage. Google still applies the signed-in account's permissions, storage limits, and API quotas. Existing users need to reconnect and approve the expanded access before these features work.
 
-Google classifies the full Drive scope as restricted. The OAuth consent configuration and any verification requirements must be satisfied before distributing this access publicly. See [Google's scope notes](Google-OAuth-Setup#important-full-drive-scope-and-verification) before configuring a client.
+Google classifies the full Drive scope as restricted. The OAuth consent configuration and any verification requirements must be satisfied before distributing this access publicly. See [Google's scope and verification steps](Google-OAuth-Setup#data-access--scopes) before configuring a client.
 
 OAuth tokens stay on this Windows device and are protected with Windows DPAPI. Cirava does not need your Google password. Do not share tokens, sign-in codes, or client secrets. A desktop client ID is entered during setup; a client secret, if Google gives you one, should remain private and local.
 

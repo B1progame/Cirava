@@ -8,7 +8,7 @@ That configuration check only validates the client ID format and network access.
 
 ## Drive is missing folders or actions
 
-Make sure Cirava is connected to the account that can see the item. Current Cirava versions request full Drive access for Trash, restore, and account storage features. If you upgraded from an older version, reconnect Google and approve the expanded access. Shared Drive operations still depend on the signed-in user's permissions. Read the [scope notes](Google-OAuth-Setup#important-full-drive-scope-and-verification) before changing OAuth settings.
+Make sure Cirava is connected to the account that can see the item. Current Cirava versions request full Drive access for Trash, restore, and account storage features. If you upgraded from an older version, reconnect Google and approve the expanded access. Shared Drive operations still depend on the signed-in user's permissions. Read [Google sign-in setup](Google-OAuth-Setup#part-1-configure-google-cloud) before changing OAuth settings.
 
 ## Upload does not start
 

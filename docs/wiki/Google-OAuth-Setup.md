@@ -1,81 +1,125 @@
-# Google OAuth Setup
+# Set up Google sign-in
 
-This guide configures Cirava to call the Google Drive API using your own Google Cloud project. Google changes Console labels over time; the resource types and settings below are the important part.
+This page walks through the Google Cloud Console setup needed to connect Cirava to Drive. There are two parts: first configure a Google Cloud project and create a Desktop OAuth client; then enter that client's ID in Cirava and approve access in Google's sign-in window.
+
+Google occasionally changes Console labels. The page names and settings below are more reliable than the exact layout. If you are already signed in to Cirava, you can skip to [enter the client in Cirava](#enter-the-client-in-cirava).
 
 ## Before you start
 
-- A Google account with Google Drive enabled.
+You will need:
+
+- A Google account that can use Google Drive.
 - Access to [Google Cloud Console](https://console.cloud.google.com/).
-- The Cirava Windows desktop app. The browser inspection preview cannot perform native OAuth or access local files.
+- The installed Cirava Windows app. The browser preview cannot perform native OAuth or access local files.
 
-Cirava needs an OAuth **Desktop app** client, not a Web application client, API key, service account, or downloaded `credentials.json` file. Cirava's setup screen takes the OAuth client ID; never upload a secret or token to GitHub.
+You do not need to create a service account, API key, Web application client, or download a `credentials.json` file. Cirava needs an OAuth client whose application type is **Desktop app**. Never send your client secret, sign-in code, token, or screenshot containing credentials to anyone.
 
-## Step 1 — Create or select a Cloud project
+## Part 1: Configure Google Cloud
 
-Open Google Cloud Console and select a project from the project picker, or create one for Cirava. Keep a separate project for development/testing if you also manage a production OAuth app. Google Cloud may ask you to select a billing account or configure billing for unrelated products; Drive OAuth setup itself does not require starting a promotional free trial.
+### 1. Select a project
 
-## Step 2 — Enable Google Drive API
+Open [Google Cloud Console](https://console.cloud.google.com/) and use the project selector in the top bar. Select a project you control, or choose **New Project**, give it a name such as `Cirava desktop`, and create it. Confirm the new project is selected before continuing.
 
-In the selected project, open **APIs & Services → Library** (or search the Console for API Library), find **Google Drive API**, open it, and click **Enable**. Confirm the project selector still shows the intended project if the API page appears empty or reports a project-selection problem.
+You do not need to start a free trial to configure Drive OAuth. Billing prompts may relate to other Google Cloud products; do not enable unrelated services for this setup.
 
-## Step 3 — Configure the OAuth consent / Google Auth Platform
+### 2. Enable Google Drive API
 
-Open **Google Auth Platform** (some projects/Console layouts may still label this **OAuth consent screen**).
+In the Console navigation, open **APIs & Services → Library**. Search for **Google Drive API**, open its official result, and select **Enable**. If the page says to choose a project or shows no enabled APIs, check the project selector at the top and select the project you intend to use.
 
-### Branding
+### 3. Configure the OAuth app
 
-Set the application name and user-support email. Add developer contact information where prompted and save the changes. Use accurate information for the project owner; Cirava does not need your password.
+Open **Google Auth Platform** from the Console navigation. In some projects, the entry is still called **OAuth consent screen**. Complete the following sections and save each one:
 
-### Audience
+#### Branding
 
-- Choose **External** if you are authorizing personal Google accounts or accounts outside one Google Workspace organization.
-- Choose **Internal** only when the app is restricted to users in the owning Google Workspace organization and the Cloud project supports that audience.
-- If an External app is in **Testing**, add every Google account that will sign in to the **Test users** list and save. An account not listed there cannot finish authorization while the app is in this state.
+Enter an app name and a support email. Add the developer contact email if requested. Use information you control and recognize; these details may appear during Google sign-in.
 
-Testing is appropriate for your own development project. For External apps in Testing, Google currently limits the test-user list and expires test-user authorizations after seven days for scopes outside the basic profile/email/OpenID set. Because Cirava requests full Drive access, expect to authorize again periodically until the OAuth project is appropriately published. See Google's current [test/publishing status guidance](https://support.google.com/cloud/answer/15549945).
+#### Audience
 
-### Data Access / scopes
+- Choose **External** for personal Google accounts or accounts outside your own Google Workspace organization.
+- Choose **Internal** only if every user belongs to the Google Workspace organization that owns the Cloud project and the Console offers that option.
+- For an External app whose publishing status is **Testing**, open **Audience → Test users**, choose **Add users**, enter each Google account that will sign in, and save. Accounts not on this list cannot authorize while the app remains in Testing.
 
-Cirava's code requests this Drive scope so it can browse Drive, manage the complete Trash, restore items, and read account storage usage:
+Testing is suitable while you are setting up your own project. Be aware of its limits: Google restricts access to listed testers and documents that refresh tokens for External apps in Testing expire after seven days when the app requests scopes beyond basic profile, email, and OpenID. Cirava requests full Drive access, so you may need to sign in again during testing. See Google's [audience and publishing status guide](https://support.google.com/cloud/answer/15549945) for the current rules.
+
+#### Data Access
+
+Open **Data Access** (previously called **Scopes**) and add this exact scope:
 
 ```text
 https://www.googleapis.com/auth/drive
 ```
 
-Declare only scopes the app needs in the consent configuration. Cirava uses the restricted `drive` scope for its complete Drive and Trash features, so the OAuth project must meet Google's applicable verification and policy requirements before public distribution. Review Google's [Drive API scope table](https://developers.google.com/workspace/drive/api/guides/api-specific-auth) when configuring Data Access.
+This is the full Drive permission. Cirava uses it to list existing Drive items, show the complete Trash, restore items, empty Trash, and read account storage usage. Google classifies it as a **restricted** scope. It grants broader access than `drive.file`; do not substitute a narrower scope, because the complete Drive and Trash features would not have the access they need.
 
-## Step 4 — Create a Desktop OAuth client
+Google requires apps using restricted scopes to follow its applicable verification and user-data policies before public distribution. Depending on how an app handles restricted data, additional review or a security assessment may apply. Review Google's [Drive scope table](https://developers.google.com/workspace/drive/api/guides/api-specific-auth) and [restricted-scope verification guidance](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification). Adding a scope to the Console does not itself complete verification.
 
-In **Google Auth Platform → Clients** (or **APIs & Services → Credentials**):
+### 4. Create the Desktop OAuth client
 
-1. Select **Create client** / **Create credentials → OAuth client ID**.
-2. Set the application type to **Desktop app**.
-3. Give the client a recognizable name, such as `Cirava on my PC`, and create it.
-4. Copy the entire client ID. It typically ends with `.apps.googleusercontent.com`.
-5. Keep any client secret Google displays private and local. Do not paste it into chat, a public issue, a screenshot, or a committed file.
+Open **Google Auth Platform → Clients**. If your Console shows the older route, use **APIs & Services → Credentials → Create credentials → OAuth client ID**.
 
-Cirava starts a local HTTP listener on `127.0.0.1` at an available port for each sign-in. The port is selected at runtime, so do not invent a Web-client redirect URI or replace the credential with a Web application client. Google's [native-app OAuth guide](https://developers.google.com/identity/protocols/oauth2/native-app) documents the installed-app loopback flow and PKCE.
+1. Choose **Desktop app** as the application type. Do not choose Web application.
+2. Enter a name you will recognize, such as `Cirava on my PC`, then create the client.
+3. Copy the complete **Client ID**. It normally ends in `.apps.googleusercontent.com`.
+4. If Google displays a client secret, keep it private and enter it only into Cirava on your own PC. Do not put it in source control, a public issue, or a chat.
 
-## Step 5 — Configure Cirava and authorize
+Cirava opens the system browser and listens for Google's response on a temporary local `127.0.0.1` callback. The available port is chosen during sign-in. You do not need to add a fixed redirect URI. Google's [desktop OAuth guide](https://developers.google.com/identity/protocols/oauth2/native-app) describes this installed-app flow and PKCE.
 
-1. Open Cirava's first-run setup or **Settings → Google account**.
-2. Paste the full Desktop client ID.
-3. If the UI offers a client secret field and your client requires one, enter it directly into Cirava. Desktop OAuth clients are installed clients; do not treat an embedded secret as a server-side secret.
-4. Run **Test configuration**. A successful result verifies the ID format and network reachability, not that the consent screen is fully correct.
-5. Choose **Continue with Google** and use an account allowed by the Audience setting.
-6. Review and approve the Google consent screen. After the local callback reports success, return to Cirava and verify the connected account appears.
+## Part 2: Connect Cirava
 
-The full browser-to-token sequence and local token protection are described in [Authentication Internals](https://github.com/B1progame/Cirava/wiki/Authentication-Internals).
+### Enter the client in Cirava
 
-## Important: Full Drive scope and verification
+1. Open the installed Cirava app.
+2. On first launch, use the Google setup screen. To change an existing setup, open **Settings → Google account**.
+3. Paste the entire Desktop OAuth **Client ID** into the client ID field.
+4. If Cirava shows a client secret field and Google provided a secret, enter it directly in that field. Do not paste it into a message or save it in the repository.
+5. Select **Test configuration**.
 
-The full `drive` scope lets Cirava browse existing Drive items, show the complete Trash, restore items, empty Trash, and report account storage. This is broader than the previous `drive.file` access, so existing users must reconnect and approve the new permission before these features become available.
+The test checks whether the client ID looks valid and whether the required Google endpoints can be reached. It does not sign you in, check the test-user list, verify the OAuth consent configuration, or prove that Google will grant Drive access. Those checks happen during authorization.
 
-Google classifies this as a restricted scope. Review the consent-screen setup, verification requirements, and Google's [Drive API scope table](https://developers.google.com/workspace/drive/api/guides/api-specific-auth) before distributing an OAuth client that requests it. If access is unavailable, check the signed-in account and whether consent was granted to this client. See [Troubleshooting](https://github.com/B1progame/Cirava/wiki/Troubleshooting#drive-is-missing-folders-or-actions).
+### Approve Google access
+
+1. Select **Continue with Google** in Cirava.
+2. Your normal web browser opens. Sign in to an account allowed by the Audience setting. If the app is External and in Testing, use one of the accounts you added under **Test users**.
+3. Check the app name and requested Drive permission on Google's consent page. Approve only if you trust the Cloud project and understand that the full Drive scope can manage Drive items, including Trash.
+4. When Google says sign-in is complete, return to Cirava. The setup screen should show the connected account.
+
+Cirava handles the authorization code and refresh token in its backend. You do not copy a code from the browser. Tokens are stored locally and protected with Windows DPAPI for the current Windows user.
+
+## Existing users: approve the expanded permission
+
+Cirava previously used narrower `drive.file` access. The complete Drive browser, Trash, restore, empty-Trash, and account-storage features need the full `drive` scope. After upgrading, open **Settings → Google account** and reconnect. Review Google's consent screen and approve the expanded access. Until you do, those features may report that access is missing even though the account appears connected.
+
+If you are developing your own OAuth project, add the `drive` scope in **Data Access** before signing in. If the project is in External Testing, make sure the Google account is also listed as a test user. A production app using this restricted scope must meet Google's current verification and policy requirements.
+
+## Fix common setup problems
+
+### The client ID is rejected
+
+Return to **Google Auth Platform → Clients** (or **APIs & Services → Credentials**) and copy the full ID for the **Desktop app** client. A project number, API key, Web client ID, or downloaded JSON filename is not a replacement.
+
+### Google says the app is unavailable or access is blocked
+
+Check **Audience**. If it is External and the publishing status is Testing, add the exact Google account you are signing in with to **Test users** and save. If your organization manages the account, an administrator may also restrict access to unverified or restricted-scope apps.
+
+### Sign-in works, but Cirava says Drive access is missing
+
+Check that Google Drive API is enabled in the same Cloud project as the OAuth client. Confirm that `https://www.googleapis.com/auth/drive` is listed in **Data Access**, then reconnect in Cirava and approve the permission. A successful **Test configuration** alone does not confirm any of these consent settings.
+
+### Authorization works, then stops working days later
+
+If the OAuth app is External and remains in Testing, Google's refresh-token lifetime for this Drive scope is seven days. Sign in again to continue testing. For broader distribution, review the publishing and verification requirements with Google before changing the app's publishing status.
+
+### You see `invalid_client` or a callback error
+
+Confirm the ID belongs to the selected Cloud project and is a **Desktop app** client. Do not change it to a Web client to add a redirect URL: Cirava's native flow uses a temporary loopback callback. Run **Test configuration** again, then retry sign-in from the installed desktop app rather than the browser preview.
+
+If you still need help, share the exact error text and Cirava version, but remove account addresses, client secrets, OAuth codes, tokens, and private project details first. See [Troubleshooting](Troubleshooting).
 
 ## Official Google references
 
 - [OAuth 2.0 for desktop apps](https://developers.google.com/identity/protocols/oauth2/native-app)
-- [Google Drive API Python quickstart — enable API, consent, Desktop client](https://developers.google.com/workspace/drive/api/quickstart/python)
-- [Choose Drive API scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)
-- [Manage OAuth app audience and testing users](https://support.google.com/cloud/answer/15549945)
+- [Google Drive API quickstart](https://developers.google.com/workspace/drive/api/quickstart/python)
+- [Choose Google Drive API scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)
+- [OAuth audience, testing, and publishing status](https://support.google.com/cloud/answer/15549945)
+- [Restricted-scope verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification)
