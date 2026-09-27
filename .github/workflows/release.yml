@@ -105,7 +105,9 @@ jobs:
           $releaseBodyPath = Join-Path $env:RUNNER_TEMP 'cirava-release-body.md'
           $notesBody = [System.IO.File]::ReadAllText($env:RELEASE_NOTES_PATH).Trim()
           if (-not $notesBody) { $notesBody = ($releaseNotes | ForEach-Object { "- $_" }) -join "`n" }
-          $releaseBody = "## $version`n`n$notesBody`n"
+          # GitHub already displays the release name above the body. Keep the
+          # original Markdown intact here instead of repeating the version heading.
+          $releaseBody = "$notesBody`n"
           [System.IO.File]::WriteAllText($releaseBodyPath, $releaseBody, [System.Text.UTF8Encoding]::new($false))
           "releasebody=$releaseBodyPath" >> $env:GITHUB_OUTPUT
 
@@ -122,6 +124,7 @@ jobs:
             appUrl = $appAssetUrl
             appSha256 = $appSha256
             releaseNotes = [string[]]$releaseNotes
+            releaseNotesMarkdown = $notesBody
           }
           $json = ConvertTo-Json -InputObject $manifest -Depth 5
           [System.IO.File]::WriteAllText((Join-Path (Get-Location) $manifestPath), $json, [System.Text.UTF8Encoding]::new($false))

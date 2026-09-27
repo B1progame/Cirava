@@ -26,7 +26,7 @@ Check that the destination folder has free space and that the signed-in account 
 
 ## The app asks me to run the installer for an update
 
-Cirava uses the installer when the major version increases, such as 1.x to 2.x. Updates within the same major version use the in-app app update, such as 1.1.2 to 1.1.3.
+Cirava uses the installer when the major version increases, such as 1.x to 2.x. Updates within the same major version use the in-app app update, such as 1.1.3 to 1.2.0.
 
 ## The release-channel menu stays open
 

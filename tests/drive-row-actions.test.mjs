@@ -32,7 +32,11 @@ test('file and folder rows keep native left-click behavior while right-click ope
 
 test('row menu exposes delete and download through the existing real Drive actions', () => {
   assert.match(source, /cirava:trash-drive-file/);
-  assert.match(source, /nativeDownload\?\.click\(\)/);
+  assert.match(source, /clickAfterHold\(nativeDownload\)/);
+  assert.match(source, /function ciravaInstallDriveDownloadHolds\(\)/);
+  assert.match(source, /bindHoldToConfirm\(button, \{ label: 'download' \}\)/);
+  assert.match(source, /clickAfterHold\(nativeDownload\)/);
+  assert.match(source, /bindHoldToConfirm\(downloadButton, \{ label: 'download' \}\)/);
   assert.match(styles, /\.drive-row-menu button\.is-danger/);
   assert.match(styles, /html\[data-theme='dark'\] \.drive-row-menu/);
 });

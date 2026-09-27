@@ -13,9 +13,11 @@ import webbrowser
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Iterator
 
 from cirava_backend.drive_api import DriveApiClient, DriveApiError
 from cirava_backend.drive_archive import download_folder_zip
+from cirava_backend.archive_compression import SevenZip, validate_compression_level
 from cirava_backend.adaptive import AdaptiveConcurrencyController, AdaptiveController, AdaptiveUploadConcurrencyController, AdaptiveWorkerGate, AggregateUploadThroughput
 from cirava_backend.models import TransferRecord, TransferStatus
 from cirava_backend.oauth import OAuthConfig, OAuthSession, TokenManager, TokenStore
@@ -59,6 +61,9 @@ class CiravaApi:
         self.preferences = TokenStore(self.data_dir / "preferences.bin")
         self._oauth_config: OAuthConfig | None = None
         self._oauth_lock = threading.Lock()
+        self._drive_client_lock = threading.Lock()
+        self._drive_client: DriveApiClient | None = None
+        self._drive_client_config: tuple[str, str] | None = None
         self._control_lock = threading.Lock()
         self._worker_condition = threading.Condition()
         self._active_workers: set[str] = set()
@@ -95,7 +100,7 @@ class CiravaApi:
         }
 
     def pause_all_transfers(self) -> dict[str, int]:
-        records = [record for record in self.store.list() if record.status in self._TRAY_ACTIVE_STATUSES]
+        records = [record for record in self.store.list() if record.status in self._TRAY_ACTIVE_STATUSES and not record.deferred]
         for record in records:
             self.pause_transfer(record.id)
         return {"paused": len(records)}
@@ -125,6 +130,8 @@ class CiravaApi:
         for record in self.store.list():
             if record.status not in interrupted:
                 continue
+            if record.deferred and record.status == TransferStatus.QUEUED:
+                continue
             record.status = TransferStatus.PAUSED
             record.speed_bps = 0
             self.store.upsert(record)
@@ -152,16 +159,23 @@ class CiravaApi:
     def start_background_services(self) -> None:
         self._notifier.start()
 
+    def _notify_safely(self, heading: str, message: str) -> None:
+        try:
+            self._notifier.notify(heading, message)
+        except Exception:
+            # A tray notification is optional and must never alter transfer state.
+            pass
+
     def _notify_transfer(self, record: TransferRecord) -> None:
         if self.load_preferences().get("showTransferNotifications", "true").lower() != "true":
             return
         if record.status == TransferStatus.FAILED:
             heading = "Upload failed" if record.direction == "upload" else "Download failed"
             detail = record.error or "No additional error details were provided."
-            self._notifier.notify(heading, f"{record.filename}: {detail[:220]}")
+            self._notify_safely(heading, f"{record.filename}: {detail[:220]}")
             return
         heading = "Upload complete" if record.direction == "upload" else "Download complete"
-        self._notifier.notify(heading, f"{record.filename} completed successfully")
+        self._notify_safely(heading, f"{record.filename} completed successfully")
 
     def boot_state(self) -> dict:
         tokens = self.tokens.load() or {}
@@ -234,6 +248,22 @@ class CiravaApi:
         self.preferences.save(current)
         return {"ok": True, "saved": sorted(current)}
 
+    def get_archive_compression_status(self) -> dict:
+        enabled = (self._setting("archive_compression_enabled") or "false").lower() == "true"
+        seven_zip = SevenZip(self.data_dir)
+        return {"enabled": enabled, "installed": seven_zip.installed(), "provider": "7-Zip", "license": "GNU LGPL; third-party software"}
+
+    def set_archive_compression_enabled(self, enabled: bool) -> dict:
+        if enabled:
+            SevenZip(self.data_dir).ensure_installed()
+        self._set_setting("archive_compression_enabled", "true" if enabled else "false")
+        return self.get_archive_compression_status()
+
+    def prepare_compressed_upload(self, local_paths: list[str], level: int = 5) -> dict:
+        if (self._setting("archive_compression_enabled") or "false").lower() != "true":
+            raise RuntimeError("Enable 7-Zip archive tools in Settings before preparing a compressed upload")
+        return SevenZip(self.data_dir).create_archive(local_paths, validate_compression_level(level))
+
     def pick_files(self) -> list[str]:
         import webview
         if not webview.windows:
@@ -256,6 +286,8 @@ class CiravaApi:
             raise RuntimeError("The Cirava desktop window is not ready yet. Try again in a moment.")
         window = webview.windows[0]
         selected = window.create_file_dialog(webview.SAVE_DIALOG, save_filename=filename) or []
+        if isinstance(selected, (str, os.PathLike)):
+            return os.fspath(selected)
         return str(selected[0]) if selected else None
 
     def summarize_local_paths(self, local_paths: list[str]) -> dict:
@@ -276,7 +308,7 @@ class CiravaApi:
                         total_bytes += item.stat().st_size
         return {"files": files, "folders": folders, "bytes": total_bytes, "items": len(local_paths)}
 
-    def create_test_upload(self, parent_id: str = "root", chunk_size: int = 64 * 1024 * 1024) -> list[dict]:
+    def create_test_upload(self, parent_id: str = "root", chunk_size: int = 64 * 1024 * 1024, start_immediately: bool = True) -> list[dict]:
         """Create the single supported test payload: a sparse 20 GiB local file."""
         test_dir = self.data_dir / "test-data"
         test_dir.mkdir(parents=True, exist_ok=True)
@@ -286,7 +318,9 @@ class CiravaApi:
             with test_file.open("wb") as handle:
                 handle.seek(test_size - 1)
                 handle.write(b"\0")
-        return self.create_upload_batch([str(test_file)], parent_id, chunk_size)
+        if start_immediately:
+            return self.create_upload_batch([str(test_file)], parent_id, chunk_size)
+        return self.create_upload_batch([str(test_file)], parent_id, chunk_size, False)
 
     def list_drive_files(self, parent_id: str = "root", query: str | None = None) -> dict:
         shared_drive_id = self._setting("shared_drive_id") or None
@@ -388,22 +422,22 @@ class CiravaApi:
         destination.write_bytes(self._drive().export_file(drive_file_id, mime_type))
         return {"status": "completed", "local_path": str(destination), "bytes": destination.stat().st_size}
 
-    def create_upload(self, local_path: str, parent_id: str = "root", chunk_size: int = 64 * 1024 * 1024, relative_path: str | None = None) -> dict:
+    def create_upload(self, local_path: str, parent_id: str = "root", chunk_size: int = 64 * 1024 * 1024, relative_path: str | None = None, start_immediately: bool = True) -> dict:
         path = Path(local_path)
         if not path.is_file():
             raise FileNotFoundError(local_path)
         transfer_id = str(uuid.uuid4())
         active_drive = self._setting("shared_drive_id") or None
         effective_parent = active_drive if parent_id == "root" and active_drive else parent_id
-        record = TransferRecord(id=transfer_id, direction="upload", filename=path.name, local_path=str(path), size=path.stat().st_size, drive_parent_id=effective_parent, relative_path=relative_path, status=TransferStatus.QUEUED)
+        record = TransferRecord(id=transfer_id, direction="upload", filename=path.name, local_path=str(path), size=path.stat().st_size, drive_parent_id=effective_parent, relative_path=relative_path, status=TransferStatus.QUEUED, deferred=not start_immediately)
         self.store.upsert(record)
         self._worker_specs[record.id] = ("upload", (chunk_size,))
         self._controls[record.id] = {"stop": threading.Event(), "action": "run"}
-        if self.start_workers:
+        if self.start_workers and start_immediately:
             threading.Thread(target=self._upload_worker, args=(record, chunk_size), daemon=True).start()
         return record.to_dict()
 
-    def create_upload_batch(self, local_paths: list[str], parent_id: str = "root", chunk_size: int = 64 * 1024 * 1024) -> list[dict]:
+    def create_upload_batch(self, local_paths: list[str], parent_id: str = "root", chunk_size: int = 64 * 1024 * 1024, start_immediately: bool = True) -> list[dict]:
         expanded: list[Path] = []
         relative_paths: dict[Path, str] = {}
         for raw_path in local_paths:
@@ -415,18 +449,18 @@ class CiravaApi:
                         relative_paths[item] = str(item.relative_to(path).parent).replace(".", "")
             elif path.is_file():
                 expanded.append(path)
-        return [self.create_upload(str(path), parent_id, chunk_size, relative_paths.get(path) or None) for path in expanded]
+        return [self.create_upload(str(path), parent_id, chunk_size, relative_paths.get(path) or None, start_immediately) for path in expanded]
 
-    def create_download(self, drive_file_id: str, local_path: str, size: int, segment_size: int = 64 * 1024 * 1024, workers: int = 4, expected_md5: str | None = None, conflict_policy: str = "ask") -> dict:
+    def create_download(self, drive_file_id: str, local_path: str, size: int, segment_size: int = 64 * 1024 * 1024, workers: int = 4, expected_md5: str | None = None, conflict_policy: str = "ask", start_immediately: bool = True) -> dict:
         destination = resolve_conflict(Path(local_path), conflict_policy)
         if destination is None:
             return {"status": "cancelled", "local_path": local_path, "error": "Destination exists and conflict policy is skip"}
         transfer_id = str(uuid.uuid4())
-        record = TransferRecord(id=transfer_id, direction="download", filename=destination.name, local_path=str(destination), size=size, drive_file_id=drive_file_id, status=TransferStatus.QUEUED)
+        record = TransferRecord(id=transfer_id, direction="download", filename=destination.name, local_path=str(destination), size=size, drive_file_id=drive_file_id, status=TransferStatus.QUEUED, deferred=not start_immediately)
         self.store.upsert(record)
         self._worker_specs[record.id] = ("download", (segment_size, workers, expected_md5))
         self._controls[record.id] = {"stop": threading.Event(), "action": "run"}
-        if self.start_workers:
+        if self.start_workers and start_immediately:
             threading.Thread(target=self._download_worker, args=(record, segment_size, workers, expected_md5), daemon=True).start()
         return record.to_dict()
 
@@ -448,6 +482,38 @@ class CiravaApi:
     def retry_transfer(self, transfer_id: str) -> dict:
         return self._restart_transfer(transfer_id, {TransferStatus.FAILED, TransferStatus.CANCELLED})
 
+    def start_transfer(self, transfer_id: str) -> dict:
+        """Start one transfer that the user deliberately left waiting in the queue."""
+        with self._control_lock:
+            record = self.store.get(transfer_id)
+            if record.status != TransferStatus.QUEUED or not record.deferred:
+                raise ValueError("This transfer is not waiting in the queue")
+            spec = self._worker_specs.get(transfer_id)
+            if not spec:
+                spec = ("upload", (64 * 1024 * 1024,)) if record.direction == "upload" else ("download", (64 * 1024 * 1024, 4, None))
+                self._worker_specs[transfer_id] = spec
+            record.deferred = False
+            record.error = None
+            self._controls[transfer_id] = {"stop": threading.Event(), "action": "run"}
+            self.store.upsert(record)
+        if self.start_workers:
+            kind, args = spec
+            target = self._upload_worker if kind == "upload" else self._download_worker
+            threading.Thread(target=target, args=(record, *args), daemon=True).start()
+        return record.to_dict()
+
+    def start_queued_transfers(self) -> dict:
+        """Start every deferred transfer in queue order."""
+        started = []
+        for record in self.store.list():
+            if record.status != TransferStatus.QUEUED or not record.deferred:
+                continue
+            try:
+                started.append(self.start_transfer(record.id)["id"])
+            except ValueError:
+                continue
+        return {"started": len(started), "ids": started}
+
     def _stop_transfer(self, transfer_id: str, action: str) -> dict:
         record = self.store.get(transfer_id)
         with self._control_lock:
@@ -455,6 +521,7 @@ class CiravaApi:
             control["action"] = action
             control["stop"].set()  # type: ignore[union-attr]
         record.status = TransferStatus.PAUSED if action == "pause" else TransferStatus.CANCELLED
+        record.deferred = False
         self.store.upsert(record)
         return record.to_dict()
 
@@ -469,6 +536,7 @@ class CiravaApi:
         with self._control_lock:
             self._controls[transfer_id] = {"stop": threading.Event(), "action": "run"}
         record.status = TransferStatus.QUEUED
+        record.deferred = False
         record.error = None
         self.store.upsert(record)
         if self.start_workers:
@@ -583,7 +651,7 @@ class CiravaApi:
         current = current_version or __version__
         manifest = Updater(self.data_dir / "updates").fetch_manifest(manifest_url)
         installer_required = requires_major_installer(manifest.version, current)
-        return {"available": is_newer_version(manifest.version, current), "version": manifest.version, "current_version": current, "release_notes": list(manifest.release_notes), "update_type": "installer" if installer_required else "in_place", "in_place_available": bool(manifest.app_url and manifest.app_sha256)}
+        return {"available": is_newer_version(manifest.version, current), "version": manifest.version, "current_version": current, "release_notes": list(manifest.release_notes), "release_notes_markdown": manifest.release_notes_markdown, "update_type": "installer" if installer_required else "in_place", "in_place_available": bool(manifest.app_url and manifest.app_sha256)}
 
     def stage_update(self, manifest_url: str, current_version: str | None = None) -> dict:
         current = current_version or __version__
@@ -677,22 +745,15 @@ class CiravaApi:
 
     def _upload_worker_impl(self, record: TransferRecord, chunk_size: int) -> None:
         try:
+            record.mark_started()
             record.status = TransferStatus.PREPARING
             self.store.upsert(record)
             if not self._should_continue(record.id):
                 raise TransferStopped()
             client = self._drive()
             parent_id = self._ensure_drive_path(client, record.drive_parent_id or "root", record.relative_path)
-            session = record.upload_session_url or client.create_upload_session({"name": record.filename, "mimeType": mimetypes.guess_type(record.filename)[0] or "application/octet-stream"}, record.size, parent_id)
-            record.upload_session_url = session
-            if record.upload_session_url and record.bytes_transferred and callable(getattr(client, "query_upload_offset", None)):
-                record.bytes_transferred = client.query_upload_offset(record.upload_session_url, record.size)
-            self.store.upsert(record)
-            record.status = TransferStatus.TRANSFERRING
-            self.store.upsert(record)
-            if not self._should_continue(record.id):
-                raise TransferStopped()
             telemetry = TransferTelemetry()
+            mime_type = mimetypes.guess_type(record.filename)[0] or "application/octet-stream"
             def retry_observed(attempt: int, delay: float, error: Exception) -> None:
                 self._record_retry(record, attempt, delay, error)
                 status = getattr(error, "status", None)
@@ -718,9 +779,40 @@ class CiravaApi:
                 elapsed = max(time.monotonic() - request_started, 1e-6)
                 controller.observe(throughput_bps=int(len(data) / elapsed), latency_ms=elapsed * 1000, error_rate=0, rate_limited=False)
                 return result
-            ResumableUploader(should_continue=lambda: self._should_continue(record.id), retryable_error=self._is_retryable_error, retry_observed=retry_observed).upload(Path(record.local_path), chunk_size, put_chunk, upload_progress, next_chunk_size=lambda: controller.chunk_size, initial_offset=record.bytes_transferred)
+            uploaded_file_id = None
+            small_file_limit = 5 * 1024 * 1024
+            create_small_file = getattr(client, "create_file", None)
+            if record.size <= small_file_limit and not record.upload_session_url and record.bytes_transferred == 0 and callable(create_small_file):
+                source_path = Path(record.local_path)
+                if source_path.stat().st_size != record.size:
+                    raise IOError("The selected file changed before upload; select it again to avoid uploading partial data")
+                with source_path.open("rb") as source:
+                    content = source.read(small_file_limit + 1)
+                if len(content) != record.size:
+                    raise IOError("The selected file changed while it was being prepared for upload")
+                record.status = TransferStatus.TRANSFERRING
+                self.store.upsert(record)
+                if not self._should_continue(record.id):
+                    raise TransferStopped()
+                self._throttle(len(content))
+                created = create_small_file(record.filename, parent_id, mime_type, content)
+                uploaded_file_id = str(created.get("id") or "")
+                if not uploaded_file_id:
+                    raise RuntimeError("Google Drive did not return the ID for the uploaded file")
+                upload_progress(record.size, record.size, 1)
+            else:
+                session = record.upload_session_url or client.create_upload_session({"name": record.filename, "mimeType": mime_type}, record.size, parent_id)
+                record.upload_session_url = session
+                if record.upload_session_url and record.bytes_transferred and callable(getattr(client, "query_upload_offset", None)):
+                    record.bytes_transferred = client.query_upload_offset(record.upload_session_url, record.size)
+                self.store.upsert(record)
+                record.status = TransferStatus.TRANSFERRING
+                self.store.upsert(record)
+                if not self._should_continue(record.id):
+                    raise TransferStopped()
+                ResumableUploader(should_continue=lambda: self._should_continue(record.id), retryable_error=self._is_retryable_error, retry_observed=retry_observed).upload(Path(record.local_path), chunk_size, put_chunk, upload_progress, next_chunk_size=lambda: controller.chunk_size, initial_offset=record.bytes_transferred)
             record.bytes_transferred = record.size
-            uploaded_file_id = getattr(client, "last_uploaded_file_id", None)
+            uploaded_file_id = uploaded_file_id or getattr(client, "last_uploaded_file_id", None)
             if uploaded_file_id:
                 record.drive_file_id = uploaded_file_id
             record.upload_session_url = None
@@ -749,6 +841,7 @@ class CiravaApi:
                 record.status = TransferStatus.PAUSED if self._stop_action(record.id) == "pause" else TransferStatus.CANCELLED
                 self.store.upsert(record)
                 return
+            record.mark_started()
             record.status = TransferStatus.TRANSFERRING
             self.store.upsert(record)
             client = self._drive()
@@ -760,25 +853,38 @@ class CiravaApi:
                 workers=workers,
                 should_continue=lambda: self._should_continue(record.id),
                 worker_provider=lambda: concurrency.workers,
-                segment_observed=lambda latency_ms, success: concurrency.observe(latency_ms=latency_ms, error=not success),
+                wave_observed=lambda amount, elapsed, error, rate_limited: concurrency.observe(
+                    throughput_bps=int(amount / max(elapsed, 1e-6)),
+                    error=error,
+                    rate_limited=rate_limited,
+                ),
                 retryable_error=self._is_retryable_error,
                 retry_observed=lambda attempt, delay, error: self._record_retry(record, attempt, delay, error),
             )
             telemetry = TransferTelemetry()
+            already_downloaded = downloader.range_map.completed_bytes
             def download_progress(done: int, _total: int) -> None:
-                speed, average, peak = telemetry.observe(done)
-                record.bytes_transferred = done
+                total_done = min(record.size, already_downloaded + done)
+                speed, average, peak = telemetry.observe(total_done)
+                record.bytes_transferred = total_done
                 record.speed_bps = speed
                 record.average_speed_bps = average
                 record.peak_speed_bps = peak
-                self.store.update_progress(record.id, bytes_transferred=done, speed_bps=speed, average_speed_bps=average, peak_speed_bps=peak)
+                self.store.update_progress(record.id, bytes_transferred=total_done, speed_bps=speed, average_speed_bps=average, peak_speed_bps=peak)
             def disk_progress(amount: int, elapsed: float) -> None:
                 current = self.store.get(record.id)
                 record.bytes_transferred = current.bytes_transferred
                 record.speed_bps = current.speed_bps
                 record.disk_write_bps = int(amount / elapsed)
                 self.store.update_progress(record.id, bytes_transferred=record.bytes_transferred, speed_bps=record.speed_bps, disk_write_bps=record.disk_write_bps)
-            def get_range(start: int, end: int) -> bytes:
+            def get_range(start: int, end: int) -> bytes | Iterator[bytes]:
+                stream_range = getattr(client, "iter_range", None)
+                if callable(stream_range):
+                    def throttled_chunks():
+                        for chunk in stream_range(record.drive_file_id or "", start, end):
+                            self._throttle(len(chunk))
+                            yield chunk
+                    return throttled_chunks()
                 self._throttle(end - start + 1)
                 return client.get_range(record.drive_file_id or "", start, end)
             downloader.download(get_range, download_progress, disk_progress)
@@ -790,6 +896,13 @@ class CiravaApi:
             record.bytes_transferred = record.size
             record.status = TransferStatus.COMPLETED
             self.store.upsert(record)
+            if (self._setting("archive_compression_enabled") or "false").lower() == "true":
+                try:
+                    extracted = SevenZip(self.data_dir).extract_cirava_archive(Path(record.local_path))
+                    if extracted:
+                        self._notify_safely("Cirava archive extracted", f"Opened extracted files at {extracted}")
+                except Exception as error:
+                    self._notify_safely("Archive downloaded", f"Automatic extraction could not finish: {str(error)[:180]}")
             self._notify_transfer(record)
         except TransferStopped:
             record.status = TransferStatus.PAUSED if self._stop_action(record.id) == "pause" else TransferStatus.CANCELLED
@@ -807,7 +920,14 @@ class CiravaApi:
         if not tokens or not tokens.get("access_token"):
             raise RuntimeError("Sign in with Google before starting a transfer")
         client_id = self._setting("client_id") or ""
-        return DriveApiClient(TokenManager(self.tokens, client_id=client_id, client_secret=os.environ.get("CIRAVA_GOOGLE_CLIENT_SECRET", "") or self._stored_client_secret()).access_token)
+        client_secret = os.environ.get("CIRAVA_GOOGLE_CLIENT_SECRET", "") or self._stored_client_secret()
+        config = (client_id, client_secret)
+        with self._drive_client_lock:
+            if self._drive_client is None or self._drive_client_config != config:
+                token_manager = TokenManager(self.tokens, client_id=client_id, client_secret=client_secret)
+                self._drive_client = DriveApiClient(token_manager.access_token)
+                self._drive_client_config = config
+            return self._drive_client
 
     def _stored_client_secret(self) -> str:
         try:

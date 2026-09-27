@@ -10,6 +10,10 @@
 
 The **Upload files** action in an empty Drive folder opens the same planner. It does not start uploading by itself.
 
+## Compress before uploading (optional)
+
+To send an archive instead of the original files, first enable **Settings → 7-Zip archive compression**. Cirava installs the separate 7-Zip tool from its official source and verifies the installer signature. In the upload planner, choose **Compress this upload**, select a compression level, and prepare the archive. The preview shows the measured archive size and savings; nothing is uploaded until you confirm the prepared item. Source files are left untouched. Already-compressed formats may not shrink much.
+
 ## Follow the upload
 
 The transfer panel reports its stage, total transferred, total size, live speed, queue count, and estimated time remaining. Early in a transfer, speed and ETA may be blank or jump around while Cirava prepares the session. A paused transfer reports zero speed. The estimate is based on recent aggregate speed, so it can move up or down.

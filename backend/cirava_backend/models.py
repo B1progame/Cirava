@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+import time
 from typing import Any
 
 
@@ -40,11 +41,18 @@ class TransferRecord:
     last_retry_delay_seconds: float = 0.0
     last_http_status: int | None = None
     error: str | None = None
+    deferred: bool = False
     priority: str = "normal"
     queue_order: int = 0
     created_at: float = field(default_factory=lambda: __import__("time").time())
     started_at: float | None = None
     completed_at: float | None = None
+
+    def mark_started(self, now: float | None = None) -> float:
+        """Set the first actual worker start time, preserving it when resumed."""
+        if self.started_at is None:
+            self.started_at = time.time() if now is None else float(now)
+        return self.started_at
 
     @property
     def progress(self) -> float:

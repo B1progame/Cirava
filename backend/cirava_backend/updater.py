@@ -74,6 +74,7 @@ class UpdateManifest:
     public_key: str | None = None
     app_url: str | None = None
     app_sha256: str | None = None
+    release_notes_markdown: str = ""
 
     @classmethod
     def from_json(cls, payload: str | bytes) -> "UpdateManifest":
@@ -82,6 +83,7 @@ class UpdateManifest:
         url = data.get("url")
         digest = data.get("sha256", "")
         notes = data.get("releaseNotes", [])
+        markdown_notes = data.get("releaseNotesMarkdown", "")
         if not isinstance(version, str) or not version or not isinstance(url, str) or not url or not isinstance(digest, str) or not re.fullmatch(r"[a-fA-F0-9]{64}", digest):
             raise ValueError("Update manifest requires version, url, and a SHA-256 checksum")
         _require_https(url, "Update installer")
@@ -96,11 +98,13 @@ class UpdateManifest:
         _version_tuple(version)
         if not isinstance(notes, list) or not all(isinstance(note, str) for note in notes):
             raise ValueError("Update release notes must be a list of strings")
+        if not isinstance(markdown_notes, str) or len(markdown_notes) > 64 * 1024:
+            raise ValueError("Update Markdown release notes must be a string no larger than 64 KiB")
         signature = data.get("signature")
         public_key = data.get("publicKey")
         if (signature is not None and not isinstance(signature, str)) or (public_key is not None and not isinstance(public_key, str)):
             raise ValueError("Update manifest signature fields must be strings")
-        return cls(version=version, url=url, sha256=digest.lower(), release_notes=tuple(notes), signature=signature, public_key=public_key, app_url=app_url, app_sha256=app_sha256.lower() if app_sha256 else None)
+        return cls(version=version, url=url, sha256=digest.lower(), release_notes=tuple(notes), signature=signature, public_key=public_key, app_url=app_url, app_sha256=app_sha256.lower() if app_sha256 else None, release_notes_markdown=markdown_notes)
 
 
 class Updater:
@@ -140,7 +144,11 @@ class Updater:
                 asset_parsed = urlparse(asset_url)
                 if asset_parsed.scheme != "https" or asset_parsed.hostname != "github.com" or "/releases/download/" not in asset_parsed.path:
                     raise ValueError("GitHub beta manifest asset URL is invalid")
-                return self.fetch_manifest(asset_url)
+                manifest = self.fetch_manifest(asset_url)
+                release_body = release.get("body")
+                if isinstance(release_body, str) and release_body.strip():
+                    return replace(manifest, release_notes_markdown=release_body[:64 * 1024])
+                return manifest
             raise ValueError("No published beta prerelease with an update manifest was found")
         return UpdateManifest.from_json(payload)
 

@@ -4,7 +4,7 @@
 
 Open the [latest release](https://github.com/B1progame/Cirava/releases/latest). Choose `Cirava-Setup-<version>.exe` for the Windows installer, or `Cirava.exe` for the standalone app. Start Cirava from the Windows profile you plan to use; its saved Google credentials are protected for that Windows user.
 
-The current stable release is **Cirava 1.1.3**. The installer is optional; the standalone app is also available on the release page.
+The current stable release is **Cirava 1.2.0**. The installer is optional; the standalone app is also available on the release page.
 
 ## Connect Drive
 
@@ -24,7 +24,7 @@ If test data is disabled in Cirava Settings, choose local files or enable the te
 
 ## Download something
 
-Open Drive, find the item, choose **Download**, and select where to save it. For a folder, use **Download as ZIP**. See [Downloads](Downloading) for details.
+Open Drive, find the item, and hold **Download** until it confirms before choosing where to save it. For a folder, hold **Download as ZIP**. See [Downloads](Downloading) for details.
 
 ## Two different testing settings
 

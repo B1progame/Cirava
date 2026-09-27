@@ -50,30 +50,70 @@ class AdaptiveController:
 class AdaptiveConcurrencyController:
     workers: int = 4
     min_workers: int = 1
-    max_workers: int = 16
+    max_workers: int = 8
     stable_observations: int = 0
     cooldown: int = 0
+    last_throughput_bps: int = 0
+    trial_baseline_bps: int = 0
+    trial_workers: int = 0
+    trial_observations: int = 0
 
     def __post_init__(self) -> None:
         self.workers = max(self.min_workers, min(self.max_workers, self.workers))
 
-    def observe(self, *, latency_ms: float, error: bool = False, rate_limited: bool = False) -> int:
-        if error or rate_limited or latency_ms >= 900:
+    def observe(self, *, throughput_bps: int = 0, latency_ms: float | None = None, error: bool = False, rate_limited: bool = False) -> int:
+        # Whole-range duration is not RTT: a healthy 64 MiB response can take
+        # seconds. Only compare aggregate bytes/sec for successful worker trials.
+        if error or rate_limited:
             self.workers = max(self.min_workers, self.workers - 1)
             self.stable_observations = 0
             self.cooldown = 2
+            self.last_throughput_bps = max(0, int(throughput_bps)) or self.last_throughput_bps
+            self.trial_workers = 0
+            self.trial_observations = 0
+            return self.workers
+        throughput_bps = max(0, int(throughput_bps))
+        if throughput_bps == 0:
+            return self.workers
+        if self.trial_workers:
+            self.trial_observations += 1
+            if throughput_bps >= int(self.trial_baseline_bps * 1.06):
+                self.last_throughput_bps = throughput_bps
+                self.trial_workers = 0
+                self.trial_observations = 0
+                self.stable_observations = 0
+            elif throughput_bps < int(self.trial_baseline_bps * 0.92) or self.trial_observations >= 2:
+                self.workers = max(self.min_workers, self.trial_workers - 1)
+                self.last_throughput_bps = self.trial_baseline_bps
+                self.trial_workers = 0
+                self.trial_observations = 0
+                self.stable_observations = 0
+                self.cooldown = 2
             return self.workers
         if self.cooldown:
             self.cooldown -= 1
             return self.workers
-        if latency_ms <= 250:
+        if not self.last_throughput_bps:
+            self.last_throughput_bps = throughput_bps
+            return self.workers
+        if throughput_bps < int(self.last_throughput_bps * 0.90):
+            self.workers = max(self.min_workers, self.workers - 1)
+            self.last_throughput_bps = throughput_bps
+            self.stable_observations = 0
+            self.cooldown = 2
+            return self.workers
+        if throughput_bps >= int(self.last_throughput_bps * 0.97):
             self.stable_observations += 1
         else:
             self.stable_observations = 0
+        self.last_throughput_bps = max(self.last_throughput_bps, throughput_bps)
         if self.stable_observations >= 4:
-            self.workers = min(self.max_workers, self.workers + 1)
+            if self.workers < self.max_workers:
+                self.workers += 1
+                self.trial_workers = self.workers
+                self.trial_baseline_bps = self.last_throughput_bps
+                self.trial_observations = 0
             self.stable_observations = 0
-            self.cooldown = 2
         return self.workers
 
 

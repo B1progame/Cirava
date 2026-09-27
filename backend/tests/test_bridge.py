@@ -3,6 +3,7 @@ import unittest
 import hashlib
 import threading
 import sys
+from types import SimpleNamespace
 from unittest.mock import patch
 from pathlib import Path
 
@@ -13,10 +14,50 @@ from cirava_backend.updater import UpdateManifest
 
 
 class BridgeTests(unittest.TestCase):
+    def test_drive_client_is_reused_across_transfer_requests(self):
+        with tempfile.TemporaryDirectory() as directory:
+            api = CiravaApi(Path(directory), start_workers=False)
+            api.tokens.save({"access_token": "test-token", "refresh_token": "refresh-token", "expires_at": 4_000_000_000})
+            api._set_setting("client_id", "1234567890-cirava.apps.googleusercontent.com")
+
+            first = api._drive()
+            second = api._drive()
+
+            self.assertIs(first, second)
+
+    def test_save_dialog_preserves_a_path_returned_as_a_string(self):
+        with tempfile.TemporaryDirectory() as directory:
+            api = CiravaApi(Path(directory), start_workers=False)
+            expected = str(Path(directory) / "download.bin")
+            window = SimpleNamespace(create_file_dialog=lambda *_args, **_kwargs: expected)
+            webview = SimpleNamespace(windows=[window], SAVE_DIALOG=1)
+            with patch.dict(sys.modules, {"webview": webview}):
+                self.assertEqual(api.pick_save_path("download.bin"), expected)
+
+    def test_archive_feature_installs_only_when_enabled_and_preserves_toggle_setting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            api = CiravaApi(Path(directory), start_workers=False)
+            with patch("main.SevenZip.ensure_installed") as install:
+                disabled = api.set_archive_compression_enabled(False)
+                self.assertFalse(disabled["enabled"])
+                install.assert_not_called()
+                install.return_value = Path(directory) / "tools" / "7zip" / "7z.exe"
+                enabled = api.set_archive_compression_enabled(True)
+            self.assertTrue(enabled["enabled"])
+            self.assertEqual(enabled["provider"], "7-Zip")
+            install.assert_called_once()
+
+    def test_archive_upload_preparation_requires_user_to_enable_the_optional_tool(self):
+        with tempfile.TemporaryDirectory() as directory:
+            api = CiravaApi(Path(directory), start_workers=False)
+            with self.assertRaisesRegex(RuntimeError, "Enable 7-Zip"):
+                api.prepare_compressed_upload(["missing.bin"], 5)
+
     def test_update_check_uses_in_place_for_same_major_and_installer_for_major_bump(self):
         manifests = [
             UpdateManifest(version="1.11.6", url="https://example.invalid/setup.exe", sha256="a" * 64,
-                           app_url="https://example.invalid/Cirava.exe", app_sha256="b" * 64),
+                           app_url="https://example.invalid/Cirava.exe", app_sha256="b" * 64,
+                           release_notes_markdown="## Highlights\n\n- **Better** updates."),
             UpdateManifest(version="2.0.0", url="https://example.invalid/setup.exe", sha256="a" * 64,
                            app_url="https://example.invalid/Cirava.exe", app_sha256="b" * 64),
         ]
@@ -29,6 +70,7 @@ class BridgeTests(unittest.TestCase):
         self.assertTrue(same_major["available"])
         self.assertEqual(same_major["update_type"], "in_place")
         self.assertTrue(same_major["in_place_available"])
+        self.assertEqual(same_major["release_notes_markdown"], "## Highlights\n\n- **Better** updates.")
         self.assertTrue(major_bump["available"])
         self.assertEqual(major_bump["update_type"], "installer")
 
@@ -73,6 +115,36 @@ class BridgeTests(unittest.TestCase):
             self.assertEqual(test_file.stat().st_size, 20 * 1024 ** 3)
             create_batch.assert_called_once_with([str(test_file)], "root", 64 * 1024 * 1024)
 
+    def test_deferred_upload_waits_until_user_starts_queue_and_survives_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = Path(directory) / "queued.txt"
+            payload.write_text("queued", encoding="utf-8")
+            app_dir = Path(directory) / "app"
+            api = CiravaApi(app_dir, start_workers=False)
+            [queued] = api.create_upload_batch([str(payload)], "root", start_immediately=False)
+            self.assertTrue(queued["deferred"])
+            self.assertEqual(queued["status"], "queued")
+
+            api = CiravaApi(app_dir, start_workers=False)
+            [recovered] = api.list_transfers()
+            self.assertTrue(recovered["deferred"])
+            self.assertEqual(recovered["status"], "queued")
+
+            result = api.start_queued_transfers()
+            self.assertEqual(result["started"], 1)
+            [started] = api.list_transfers()
+            self.assertFalse(started["deferred"])
+
+    def test_download_can_be_added_to_waiting_queue_without_starting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+            queued = api.create_download("drive-file-1", str(Path(directory) / "download.bin"), 4096, start_immediately=False)
+            self.assertEqual(queued["direction"], "download")
+            self.assertEqual(queued["status"], "queued")
+            self.assertTrue(queued["deferred"])
+            started = api.start_transfer(queued["id"])
+            self.assertFalse(started["deferred"])
+
     def test_tray_notifications_are_safe_before_desktop_shell_starts(self):
         notifier = TrayNotifier()
         notifier.notify("Transfer complete", "example.bin")
@@ -108,6 +180,31 @@ class BridgeTests(unittest.TestCase):
                 oauth.return_value.login.return_value = {"access_token": "new-token", "refresh_token": "new-refresh"}
                 self.assertTrue(api.begin_google_login()["authenticated"])
             self.assertEqual(api.tokens.load()["cirava_scope_version"], 2)
+
+    def test_staging_and_auto_update_keep_google_login_and_client_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory) / "Cirava"
+            api = CiravaApi(data_dir, start_workers=False)
+            client_id = "1234567890-cirava.apps.googleusercontent.com"
+            api.save_google_configuration(client_id)
+            api.tokens.save({"access_token": "access", "refresh_token": "refresh", "cirava_scope_version": 2})
+            staged = data_dir / "updates" / "verified.exe"
+            staged.parent.mkdir(parents=True)
+            staged.write_bytes(b"verified app")
+            manifest = UpdateManifest(
+                version="1.1.3", url="https://example.invalid/setup.exe", sha256="a" * 64,
+                app_url="https://example.invalid/Cirava.exe", app_sha256="b" * 64,
+                release_notes_markdown="## Notes\n\n- Update",
+            )
+            with patch("main.Updater") as updater:
+                updater.return_value.fetch_manifest.return_value = manifest
+                updater.return_value.download_app_and_stage.return_value = staged
+                self.assertTrue(api.stage_update("https://example.invalid/update-manifest.json", "1.1.2")["staged"])
+            reopened = CiravaApi(data_dir, start_workers=False)
+            self.assertTrue(reopened.boot_state()["authenticated"])
+            self.assertTrue(reopened.boot_state()["configured"])
+            self.assertEqual(reopened.tokens.load()["refresh_token"], "refresh")
+            self.assertEqual(reopened._setting("client_id"), client_id)
 
     def test_trash_and_storage_bridge_methods_forward_to_drive(self):
         class FakeDrive:
@@ -383,7 +480,7 @@ class BridgeTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "upload.bin"
-            source.write_bytes(b"u" * (3 * 256 * 1024))
+            source.write_bytes(b"u" * (6 * 1024 * 1024))
             api = CiravaApi(Path(directory) / "app", start_workers=False)
             fake = FakeDrive()
             api._drive = lambda: fake
@@ -392,6 +489,35 @@ class BridgeTests(unittest.TestCase):
             loaded = api.store.get(record["id"])
             self.assertEqual(loaded.status.value, "completed")
             self.assertEqual(bytes(fake.payload), source.read_bytes())
+
+    def test_uploads_files_at_or_below_five_mib_as_one_multipart_request(self):
+        class FakeDrive:
+            def __init__(self):
+                self.created = None
+
+            def create_file(self, name, parent, mime_type, content):
+                self.created = (name, parent, mime_type, content)
+                return {"id": "small-drive-file"}
+
+            def create_upload_session(self, *_args):
+                raise AssertionError("small files should not make a separate resumable-session request")
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "small.txt"
+            payload = b"x" * (5 * 1024 * 1024)
+            source.write_bytes(payload)
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+            fake = FakeDrive()
+            api._drive = lambda: fake
+            record = api.create_upload(str(source))
+
+            api._upload_worker(api.store.get(record["id"]), 16 * 1024 * 1024)
+
+            completed = api.store.get(record["id"])
+            self.assertEqual(completed.status.value, "completed")
+            self.assertEqual(completed.drive_file_id, "small-drive-file")
+            self.assertEqual(completed.bytes_transferred, len(payload))
+            self.assertEqual(fake.created, ("small.txt", "root", "text/plain", payload))
 
     def test_paused_upload_reuses_persisted_drive_session_and_offset(self):
         class FakeDrive:
@@ -476,6 +602,45 @@ class BridgeTests(unittest.TestCase):
             loaded = api.store.get(record["id"])
             self.assertEqual(loaded.status.value, "completed")
             self.assertEqual(destination.read_bytes(), payload)
+
+    def test_download_remains_completed_when_windows_notification_fails(self):
+        class FakeDrive:
+            def get_range(self, file_id, start, end):
+                return b"download"
+
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "download.bin"
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+            api._drive = lambda: FakeDrive()
+
+            def fail_notification(*_args):
+                raise RuntimeError("module 'win32con' has no attribute 'NIF_INFO'")
+
+            api._notifier.notify = fail_notification
+            record = api.create_download("drive-id", str(destination), 8, segment_size=256 * 1024, workers=1)
+            api._download_worker(api.store.get(record["id"]), 256 * 1024, 1, None)
+
+            self.assertEqual(api.store.get(record["id"]).status.value, "completed")
+            self.assertEqual(destination.read_bytes(), b"download")
+
+    def test_download_auto_extracts_after_download_only_when_optional_feature_is_enabled(self):
+        class FakeDrive:
+            def get_range(self, file_id, start, end):
+                return b"archive"
+
+        with tempfile.TemporaryDirectory() as directory:
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+            api._drive = lambda: FakeDrive()
+            destination = Path(directory) / "bundle.cirava.zip"
+            api._set_setting("archive_compression_enabled", "true")
+            def fail_notification(*_args):
+                raise RuntimeError("notification unavailable")
+            api._notifier.notify = fail_notification
+            record = api.create_download("drive-id", str(destination), 7, segment_size=256 * 1024, workers=1, conflict_policy="replace")
+            with patch("main.SevenZip.extract_cirava_archive", return_value=Path(directory) / "bundle (extracted)") as extract:
+                api._download_worker(api.store.get(record["id"]), 256 * 1024, 1, None)
+            self.assertEqual(api.store.get(record["id"]).status.value, "completed")
+            extract.assert_called_once_with(destination)
 
     def test_staged_update_handoff_is_path_validated(self):
         with tempfile.TemporaryDirectory() as directory:

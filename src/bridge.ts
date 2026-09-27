@@ -7,11 +7,14 @@ export type CiravaBridge = {
   sign_out: () => Promise<{ ok: boolean }>;
   load_preferences: () => Promise<Record<string, string>>;
   save_preferences: (values: Record<string, string>) => Promise<{ ok: boolean; saved: string[] }>;
+  get_archive_compression_status: () => Promise<{ enabled: boolean; installed: boolean; provider: string; license: string }>;
+  set_archive_compression_enabled: (enabled: boolean) => Promise<{ enabled: boolean; installed: boolean; provider: string; license: string }>;
+  prepare_compressed_upload: (localPaths: string[], level?: number) => Promise<{ archive_path: string; archive_name: string; original_bytes: number; archive_bytes: number; saved_bytes: number; saved_percent: number; files: number }>;
   pick_files: () => Promise<string[]>;
   pick_folder: () => Promise<string[]>;
   pick_save_path: (filename: string) => Promise<string | null>;
   summarize_local_paths: (localPaths: string[]) => Promise<{ files: number; folders: number; bytes: number; items: number }>;
-  create_test_upload: (parentId?: string, chunkSize?: number) => Promise<unknown[]>;
+  create_test_upload: (parentId?: string, chunkSize?: number, startImmediately?: boolean) => Promise<unknown[]>;
   list_drive_files: (parentId?: string, query?: string) => Promise<unknown>;
   find_drive_files_by_name: (name: string) => Promise<{ files: Array<Record<string, any>> }>;
   list_trashed_drive_files: () => Promise<{ files?: Array<Record<string, unknown>> }>;
@@ -28,9 +31,11 @@ export type CiravaBridge = {
   read_drive_file: (driveFileId: string, mimeType?: string, maxBytes?: number) => Promise<{ id: string; content: string; bytes: number; mime_type: string }>;
   update_drive_file: (driveFileId: string, content: string, mimeType?: string) => Promise<{ id: string; status: string; bytes: number }>;
   export_drive_file: (driveFileId: string, localPath: string, mimeType: string) => Promise<{ status: string; local_path: string; bytes?: number }>;
-  create_upload: (localPath: string, parentId?: string, chunkSize?: number) => Promise<unknown>;
-  create_upload_batch: (localPaths: string[], parentId?: string, chunkSize?: number) => Promise<unknown[]>;
-    create_download: (driveFileId: string, localPath: string, size: number, segmentSize?: number, workers?: number, expectedMd5?: string, conflictPolicy?: "ask" | "skip" | "replace" | "keep-both") => Promise<unknown>;
+  create_upload: (localPath: string, parentId?: string, chunkSize?: number, startImmediately?: boolean) => Promise<unknown>;
+  create_upload_batch: (localPaths: string[], parentId?: string, chunkSize?: number, startImmediately?: boolean) => Promise<unknown[]>;
+  create_download: (driveFileId: string, localPath: string, size: number, segmentSize?: number, workers?: number, expectedMd5?: string, conflictPolicy?: "ask" | "skip" | "replace" | "keep-both", startImmediately?: boolean) => Promise<unknown>;
+  start_transfer: (transferId: string) => Promise<unknown>;
+  start_queued_transfers: () => Promise<{ started: number; ids: string[] }>;
   pause_transfer: (transferId: string) => Promise<unknown>;
   cancel_transfer: (transferId: string) => Promise<unknown>;
   resume_transfer: (transferId: string) => Promise<unknown>;
@@ -52,6 +57,7 @@ export type CiravaBridge = {
     version: string;
     current_version: string;
     release_notes: string[];
+    release_notes_markdown: string;
     update_type: 'installer' | 'in_place';
     in_place_available: boolean;
   }>;

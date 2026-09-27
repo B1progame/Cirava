@@ -1,5 +1,7 @@
 # Cirava help
 
+The current stable release is **Cirava 1.2.0**. Get the installer or standalone app from [GitHub Releases](https://github.com/B1progame/Cirava/releases/latest).
+
 Start with the task you want to do:
 
 - [Get Cirava running](Getting-Started): install the app, connect Drive, and make a first transfer.

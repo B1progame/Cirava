@@ -1,18 +1,114 @@
 import base64
-import io
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import threading
 import tempfile
 import unittest
-import urllib.error
-from unittest.mock import patch
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from unittest.mock import patch
 
 from cirava_backend.drive_api import DriveApiClient, content_range, is_retryable_status
 from cirava_backend.oauth import OAuthConfig, OAuthSession, TokenManager, TokenStore, oauth_completion_page
 
 
 class GoogleProtocolTests(unittest.TestCase):
+    def test_drive_client_reuses_keep_alive_connection_for_metadata_requests(self):
+        client_ports = []
+
+        class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_GET(self):
+                client_ports.append(self.client_address[1])
+                payload = b'{"ok":true}'
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *_args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server.daemon_threads = True
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        try:
+            client = DriveApiClient("test-token")
+            url = f"http://127.0.0.1:{server.server_port}/drive-test"
+            self.assertEqual(client._request(url)[2], b'{"ok":true}')
+            self.assertEqual(client._request(url)[2], b'{"ok":true}')
+        finally:
+            server.shutdown()
+            server.server_close()
+            server_thread.join(timeout=2)
+
+        self.assertEqual(len(client_ports), 2)
+        self.assertEqual(client_ports[0], client_ports[1])
+
+    def test_drive_media_ranges_stream_bounded_chunks_with_the_requested_byte_range(self):
+        payload = bytes(range(256)) * 800
+        captured_ranges = []
+        accepted_encodings = []
+
+        class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_GET(self):
+                requested = self.headers.get("Range")
+                captured_ranges.append(requested)
+                accepted_encodings.append(self.headers.get("Accept-Encoding"))
+                start, end = (int(value) for value in requested.removeprefix("bytes=").split("-"))
+                body = payload[start:end + 1]
+                self.send_response(206)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Content-Range", f"bytes {start}-{end}/{len(payload)}")
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server.daemon_threads = True
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        try:
+            client = DriveApiClient("test-token")
+            with patch("cirava_backend.drive_api.DRIVE_API", f"http://127.0.0.1:{server.server_port}/drive/v3"):
+                chunks = list(client.iter_range("drive-file", 0, len(payload) - 1, chunk_size=64 * 1024))
+        finally:
+            server.shutdown()
+            server.server_close()
+            server_thread.join(timeout=2)
+
+        self.assertEqual(captured_ranges, [f"bytes=0-{len(payload) - 1}"])
+        self.assertEqual(accepted_encodings, ["identity"])
+        self.assertEqual(b"".join(chunks), payload)
+        self.assertLessEqual(max(map(len, chunks)), 64 * 1024)
+
+    def test_parallel_upload_workers_keep_their_created_drive_ids_separate(self):
+        client = DriveApiClient("test-token")
+        both_set = threading.Barrier(2)
+        results = {}
+
+        def record_id(worker, file_id):
+            client.last_uploaded_file_id = file_id
+            both_set.wait(timeout=2)
+            results[worker] = client.last_uploaded_file_id
+
+        threads = [
+            threading.Thread(target=record_id, args=("first", "drive-file-1")),
+            threading.Thread(target=record_id, args=("second", "drive-file-2")),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=3)
+
+        self.assertEqual(results, {"first": "drive-file-1", "second": "drive-file-2"})
+
     def test_oauth_completion_page_has_close_attempt_and_honest_fallback(self):
         page = oauth_completion_page().decode("utf-8")
 
@@ -56,19 +152,17 @@ class GoogleProtocolTests(unittest.TestCase):
 
     def test_resumable_status_probe_uses_drive_acknowledged_range(self):
         captured = []
-
-        def fake_urlopen(request, timeout):
-            captured.append((request, timeout))
-            raise urllib.error.HTTPError(request.full_url, 308, "Resume incomplete", {"Range": "bytes=0-255"}, io.BytesIO())
-
-        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
-            offset = DriveApiClient("token").query_upload_offset("https://upload.example/session", 1024)
+        client = DriveApiClient("token")
+        client._request = lambda url, **kwargs: captured.append((url, kwargs)) or (308, {"Range": "bytes=0-255"}, b"")
+        offset = client.query_upload_offset("https://upload.example/session", 1024)
 
         self.assertEqual(offset, 256)
-        request, timeout = captured[0]
-        self.assertEqual(timeout, 60)
-        self.assertEqual(request.get_header("Content-range"), "bytes */1024")
-        self.assertEqual(request.get_header("Content-length"), "0")
+        url, options = captured[0]
+        self.assertEqual(url, "https://upload.example/session")
+        self.assertEqual(options["method"], "PUT")
+        self.assertEqual(options["body"], b"")
+        self.assertEqual(options["headers"]["Content-Range"], "bytes */1024")
+        self.assertEqual(options["headers"]["Content-Length"], "0")
 
     def test_final_resumable_response_keeps_created_drive_file_id(self):
         class FakeResponse:
@@ -83,9 +177,9 @@ class GoogleProtocolTests(unittest.TestCase):
             def read(self):
                 return b'{"id":"drive-file-123","name":"fixture.bin"}'
 
-        with patch("urllib.request.urlopen", return_value=FakeResponse()):
-            client = DriveApiClient("token")
-            offset = client.put_upload_chunk("https://upload.example/session", b"data", 0, 3, 4)
+        client = DriveApiClient("token")
+        client._request = lambda *args, **kwargs: (200, {}, b'{"id":"drive-file-123","name":"fixture.bin"}')
+        offset = client.put_upload_chunk("https://upload.example/session", b"data", 0, 3, 4)
 
         self.assertEqual(offset, 4)
         self.assertEqual(client.last_uploaded_file_id, "drive-file-123")

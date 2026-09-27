@@ -1,6 +1,6 @@
 # Follow and control transfers
 
-Open **Transfers** to see current and recent work. Each active transfer shows its state and progress. The overall panel combines progress across the queue; a single file may be moving while the queue's total also includes files that have not started yet.
+Open **Transfers** to see current and recent work. Each active transfer shows its state, progress, elapsed time, and estimated time remaining. The overall panel combines progress across the queue; a single file may be moving while the queue's total also includes files that have not started yet. Toasts announce when work is queued, begins, or advances to the next queued item.
 
 ## What the status means
 

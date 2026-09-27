@@ -14,7 +14,7 @@ from cirava_backend.updater import UpdateManifest, Updater, is_newer_version, re
 class UpdaterTests(unittest.TestCase):
     def test_beta_feed_uses_manifest_from_latest_github_prerelease(self):
         api_payload = json.dumps([
-            {"draft": False, "prerelease": True, "assets": [{"name": "update-manifest.json", "browser_download_url": "https://github.com/acme/cirava/releases/download/v1.2.0-beta.2/update-manifest.json"}]},
+            {"draft": False, "prerelease": True, "body": "## Beta notes\n\n- **Resumable** transfers", "assets": [{"name": "update-manifest.json", "browser_download_url": "https://github.com/acme/cirava/releases/download/v1.2.0-beta.2/update-manifest.json"}]},
             {"draft": False, "prerelease": False, "assets": []},
             {"draft": True, "prerelease": True, "assets": []},
         ]).encode()
@@ -29,6 +29,7 @@ class UpdaterTests(unittest.TestCase):
             manifest = Updater(Path(tempfile.gettempdir())).fetch_manifest("https://api.github.com/repos/acme/cirava/releases?per_page=100")
         self.assertEqual(manifest.version, "1.2.0-beta.2")
         self.assertEqual(manifest.release_notes, ("Beta improvements",))
+        self.assertEqual(manifest.release_notes_markdown, "## Beta notes\n\n- **Resumable** transfers")
 
     def test_beta_feed_rejects_github_release_without_manifest_asset(self):
         api_payload = json.dumps([{"draft": False, "prerelease": True, "assets": []}]).encode()
@@ -61,6 +62,20 @@ class UpdaterTests(unittest.TestCase):
         }))
         self.assertEqual(manifest.app_url, "https://example.com/Cirava.exe")
         self.assertEqual(manifest.app_sha256, "b" * 64)
+
+    def test_manifest_preserves_release_markdown_for_the_update_screen(self):
+        markdown = "## Highlights\n\n- Added **pause** and `resume`.\n"
+        manifest = UpdateManifest.from_json(json.dumps({
+            "version": "1.10.1", "url": "https://example.com/setup.exe", "sha256": "a" * 64,
+            "releaseNotesMarkdown": markdown,
+        }))
+        self.assertEqual(manifest.release_notes_markdown, markdown)
+
+    def test_manifest_rejects_malformed_or_oversized_markdown_notes(self):
+        for notes in ([], "x" * (64 * 1024 + 1)):
+            payload = {"version": "1.2.0", "url": "https://example.com/setup.exe", "sha256": "a" * 64, "releaseNotesMarkdown": notes}
+            with self.subTest(notes_type=type(notes).__name__), self.assertRaisesRegex(ValueError, "Markdown"):
+                UpdateManifest.from_json(json.dumps(payload))
 
     def test_app_update_download_uses_app_asset_checksum(self):
         payload = b"standalone-app"

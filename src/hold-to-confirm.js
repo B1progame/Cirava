@@ -32,6 +32,16 @@ export function createHoldProgress({ durationMs = 900, onProgress = () => {}, on
   };
 }
 
+const confirmedClicks = new WeakSet();
+
+/** Trigger a protected control only from another already-confirmed hold action. */
+export function clickAfterHold(button) {
+  if (!button) return;
+  confirmedClicks.add(button);
+  try { button.click(); }
+  finally { confirmedClicks.delete(button); }
+}
+
 export function bindHoldToConfirm(button, { durationMs = 900, label = 'start', onConfirm } = {}) {
   if (button.dataset.holdConfirmBound === 'true') return () => {};
   button.dataset.holdConfirmBound = 'true';
@@ -109,7 +119,7 @@ export function bindHoldToConfirm(button, { durationMs = 900, label = 'start', o
     if (event.key === activeKey) { event.preventDefault(); cancel(); }
   };
   const onClick = (event) => {
-    if (bypassClick) return;
+    if (bypassClick || confirmedClicks.has(button)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   };

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
-import urllib.error
+import threading
 import urllib.parse
-import urllib.request
-from typing import Callable
+from typing import Callable, Iterator
+
+import requests
+from requests.adapters import HTTPAdapter
 
 
 DRIVE_API = "https://www.googleapis.com/drive/v3"
@@ -28,23 +30,56 @@ class DriveApiError(RuntimeError):
 class DriveApiClient:
     def __init__(self, access_token: str | Callable[[], str]):
         self._access_token = access_token
-        # Google returns the created file resource in the final 200/201
-        # resumable-upload response. Keep just its id so the transfer record
-        # can be resumed, downloaded, and opened after the upload completes.
-        self.last_uploaded_file_id: str | None = None
+        self._http_adapter = HTTPAdapter(pool_connections=4, pool_maxsize=8, max_retries=0, pool_block=True)
+        self._session_local = threading.local()
+        # The final resumable response is per upload worker. Keep its ID in
+        # thread-local state because one DriveApiClient is shared by transfers.
+
+    @property
+    def last_uploaded_file_id(self) -> str | None:
+        return getattr(self._session_local, "last_uploaded_file_id", None)
+
+    @last_uploaded_file_id.setter
+    def last_uploaded_file_id(self, value: str | None) -> None:
+        self._session_local.last_uploaded_file_id = value
 
     def _token(self) -> str:
         return self._access_token() if callable(self._access_token) else self._access_token
 
-    def _request(self, url: str, *, method: str = "GET", body: bytes | None = None, headers: dict[str, str] | None = None) -> tuple[int, dict[str, str], bytes]:
+    def _session(self) -> requests.Session:
+        session = getattr(self._session_local, "session", None)
+        if session is None:
+            session = requests.Session()
+            # Keep per-thread request state isolated while sharing urllib3's
+            # thread-safe connection pools across file and range workers.
+            for adapter in session.adapters.values():
+                adapter.close()
+            session.adapters.clear()
+            session.mount("https://", self._http_adapter)
+            session.mount("http://", self._http_adapter)
+            self._session_local.session = session
+        return session
+
+    def _request(self, url: str, *, method: str = "GET", body: bytes | None = None, headers: dict[str, str] | None = None, timeout: float = 60) -> tuple[int, dict[str, str], bytes]:
         request_headers = {"Authorization": f"Bearer {self._token()}"}
         request_headers.update(headers or {})
-        request = urllib.request.Request(url, data=body, headers=request_headers, method=method)
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                return response.status, dict(response.headers), response.read()
-        except urllib.error.HTTPError as error:
-            raise DriveApiError(error.code, error.read().decode(errors="replace")) from error
+            response = self._session().request(method, url, data=body, headers=request_headers, timeout=timeout, allow_redirects=False)
+        except requests.Timeout as error:
+            raise TimeoutError(str(error)) from error
+        except requests.ConnectionError as error:
+            raise ConnectionError(str(error)) from error
+        except requests.RequestException as error:
+            raise OSError(str(error)) from error
+        try:
+            status = response.status_code
+            response_headers = dict(response.headers)
+            data = response.content
+            if status >= 400:
+                raise DriveApiError(status, data.decode(errors="replace"))
+            return status, response_headers, data
+        finally:
+            response.close()
 
     def list_files(self, *, parent_id: str = "root", query: str | None = None, page_token: str | None = None, shared_drive_id: str | None = None) -> dict:
         clauses = [f"'{parent_id}' in parents", "trashed = false"]
@@ -193,18 +228,11 @@ class DriveApiClient:
         response to an empty status probe.
         """
         headers = {"Content-Length": "0", "Content-Range": f"bytes */{total_size}", "Content-Type": "application/octet-stream"}
-        request = urllib.request.Request(session_url, data=b"", headers={**headers, "Authorization": f"Bearer {self._token()}"}, method="PUT")
-        try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                if response.status in {200, 201}:
-                    return total_size
-                range_header = response.headers.get("Range", "")
-                return int(range_header.rsplit("-", 1)[1]) + 1 if "-" in range_header else 0
-        except urllib.error.HTTPError as error:
-            if error.code == 308:
-                range_header = error.headers.get("Range", "")
-                return int(range_header.rsplit("-", 1)[1]) + 1 if "-" in range_header else 0
-            raise DriveApiError(error.code, "Drive resumable session status failed") from error
+        status, response_headers, _ = self._request(session_url, method="PUT", body=b"", headers=headers)
+        if status in {200, 201}:
+            return total_size
+        range_header = response_headers.get("Range", "")
+        return int(range_header.rsplit("-", 1)[1]) + 1 if "-" in range_header else 0
 
     def list_shared_drives(self, page_token: str | None = None) -> dict:
         params = {"pageSize": "100", "fields": "nextPageToken,drives(id,name,createdTime)"}
@@ -252,32 +280,47 @@ class DriveApiClient:
 
     def put_upload_chunk(self, session_url: str, data: bytes, start: int, end: int, total: int) -> int | None:
         headers = {"Content-Length": str(len(data)), "Content-Range": content_range(start, end, total), "Content-Type": "application/octet-stream"}
-        request = urllib.request.Request(session_url, data=data, headers={**headers, "Authorization": f"Bearer {self._token()}"}, method="PUT")
-        try:
-            with urllib.request.urlopen(request, timeout=120) as response:
-                if response.status in {200, 201}:
-                    payload = response.read()
-                    if payload:
-                        try:
-                            file_id = json.loads(payload.decode()).get("id")
-                        except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
-                            file_id = None
-                        if file_id:
-                            self.last_uploaded_file_id = str(file_id)
-                    return total
-                return end + 1
-        except urllib.error.HTTPError as error:
-            if error.code == 308:
-                range_header = error.headers.get("Range", "")
-                if "-" in range_header:
-                    return int(range_header.rsplit("-", 1)[1]) + 1
-                return start
-            raise DriveApiError(error.code, "Drive upload chunk failed") from error
+        status, response_headers, payload = self._request(session_url, method="PUT", body=data, headers=headers, timeout=120)
+        if status in {200, 201}:
+            if payload:
+                try:
+                    file_id = json.loads(payload.decode()).get("id")
+                except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+                    file_id = None
+                if file_id:
+                    self.last_uploaded_file_id = str(file_id)
+            return total
+        if status == 308:
+            range_header = response_headers.get("Range", "")
+            return int(range_header.rsplit("-", 1)[1]) + 1 if "-" in range_header else start
+        return end + 1
 
     def get_range(self, file_id: str, start: int, end: int) -> bytes:
         params = urllib.parse.urlencode({"alt": "media", "supportsAllDrives": "true"})
         _, _, data = self._request(f"{DRIVE_API}/files/{urllib.parse.quote(file_id)}?{params}", headers={"Range": f"bytes={start}-{end}"})
         return data
+
+    def iter_range(self, file_id: str, start: int, end: int, *, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:
+        """Stream a Drive media range in bounded buffers rather than materializing it."""
+        params = urllib.parse.urlencode({"alt": "media", "supportsAllDrives": "true"})
+        url = f"{DRIVE_API}/files/{urllib.parse.quote(file_id)}?{params}"
+        headers = {"Authorization": f"Bearer {self._token()}", "Range": f"bytes={start}-{end}", "Accept-Encoding": "identity"}
+        try:
+            response = self._session().get(url, headers=headers, timeout=120, stream=True, allow_redirects=False)
+        except requests.Timeout as error:
+            raise TimeoutError(str(error)) from error
+        except requests.ConnectionError as error:
+            raise ConnectionError(str(error)) from error
+        except requests.RequestException as error:
+            raise OSError(str(error)) from error
+        try:
+            if response.status_code >= 400:
+                raise DriveApiError(response.status_code, response.content.decode(errors="replace"))
+            for block in response.iter_content(chunk_size=max(64 * 1024, int(chunk_size))):
+                if block:
+                    yield block
+        finally:
+            response.close()
 
     def export_file(self, file_id: str, mime_type: str) -> bytes:
         params = urllib.parse.urlencode({"mimeType": mime_type})

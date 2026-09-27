@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatTransferJourneyEta, getCancellableUploadIds, getPausableUploadIds, getResumableUploadIds, getTransferJourneyActivity, getTransferJourneyFrame, getTransferJourneyPathProgress, getTransferJourneySummary, getTransferJourneyViewBox, renderTransferJourney } from '../src/transfer-journey.js';
+import { createTransferEtaCountdown, formatTransferJourneyElapsed, formatTransferJourneyEta, getCancellableUploadIds, getPausableUploadIds, getResumableUploadIds, getTransferJourneyActivity, getTransferJourneyFrame, getTransferJourneyPathProgress, getTransferJourneySummary, getTransferJourneyViewBox, renderTransferJourney } from '../src/transfer-journey.js';
 
 test('empty transfer state presents a labeled route with hidden SVG file packets', () => {
   const html = renderTransferJourney();
@@ -83,6 +83,8 @@ test('live summary aggregates active queue files, transferred bytes, total bytes
     totalBytes: 3_500,
     speedBps: 120,
     etaSeconds: 24,
+    elapsedSeconds: 0,
+    progressAnimationActive: true,
     progressPercent: 18.6,
     state: 'Transferring',
   });
@@ -99,6 +101,8 @@ test('live summary hides when there are no in-progress queue files', () => {
     totalBytes: 0,
     speedBps: 0,
     etaSeconds: null,
+    elapsedSeconds: 0,
+    progressAnimationActive: false,
     progressPercent: 0,
     state: 'Idle',
   });
@@ -117,6 +121,32 @@ test('ETA uses aggregate active throughput and remaining bytes; formatting stays
   assert.equal(formatTransferJourneyEta(1), '1 sec left');
   assert.equal(formatTransferJourneyEta(0), 'Finishing…');
   assert.equal(formatTransferJourneyEta(3_725), '1 hr 3 min left');
+});
+
+test('ETA visibly counts down between transfer refreshes and recalibrates when the estimate changes substantially', () => {
+  let now = 10_000;
+  const countdown = createTransferEtaCountdown(() => now);
+  countdown.update(26);
+  assert.equal(formatTransferJourneyEta(countdown.remaining()), '26 sec left');
+  now += 1000;
+  countdown.update(25);
+  assert.equal(formatTransferJourneyEta(countdown.remaining()), '25 sec left');
+  now += 1000;
+  assert.equal(formatTransferJourneyEta(countdown.remaining()), '24 sec left');
+  countdown.update(12);
+  assert.equal(formatTransferJourneyEta(countdown.remaining()), '12 sec left');
+  countdown.update(null);
+  assert.equal(countdown.remaining(), null);
+});
+
+test('elapsed time counts up from the earliest transfer start and shows hours, minutes, and seconds', () => {
+  const summary = getTransferJourneySummary([
+    { status: 'transferring', started_at: 1000 },
+    { status: 'queued' },
+  ], 4661);
+  assert.equal(summary.elapsedSeconds, 3661);
+  assert.equal(formatTransferJourneyElapsed(summary.elapsedSeconds), '1 hr 1 min 1 sec');
+  assert.equal(formatTransferJourneyElapsed(9), '0 hr 0 min 9 sec');
 });
 
 test('a paused upload is not reported as moving and remains cancellable from the transfer panel', () => {
@@ -152,6 +182,16 @@ test('a zero-byte transfer is reported as starting instead of falsely implying d
   ]).state, 'Connecting to Drive');
 });
 
+test('the progress fill animates only for active transfers and honors reduced motion', async () => {
+  assert.equal(getTransferJourneySummary([{ status: 'transferring', direction: 'upload' }]).progressAnimationActive, true);
+  assert.equal(getTransferJourneySummary([{ status: 'paused', direction: 'upload' }]).progressAnimationActive, false);
+  const html = renderTransferJourney();
+  assert.match(html, /class="transfer-live-progress"[^>]*data-transfer-active="false"/);
+  const css = await (await import('node:fs/promises')).readFile(new URL('../src/transfer-journey.css', import.meta.url), 'utf8');
+  assert.match(css, /\.transfer-live-progress\[data-transfer-active=['"]true['"]\]\s*>\s*span::after\s*\{[^}]*animation:\s*transfer-progress-sheen/s);
+  assert.match(css, /prefers-reduced-motion:\s*reduce[\s\S]*?\.transfer-live-progress\s*>\s*span::after\s*\{[^}]*animation:\s*none/s);
+});
+
 test('upload startup reports the current preparation and first-chunk steps', () => {
   assert.equal(getTransferJourneySummary([
     { direction: 'upload', status: 'queued', size: 5_000 },
@@ -176,6 +216,7 @@ test('the route markup has a live progress summary beneath its animation', () =>
   assert.ok(html.indexOf('class="transfer-journey-art"') < html.indexOf('class="transfer-live-summary"'));
   assert.match(html, /data-live-speed/);
   assert.match(html, /data-live-eta/);
+  assert.match(html, /data-live-elapsed/);
   assert.match(html, /data-live-bytes/);
   assert.match(html, /data-live-files/);
   assert.match(html, /role="progressbar"/);

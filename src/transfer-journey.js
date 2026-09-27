@@ -16,7 +16,10 @@ export function getCancellableUploadIds(transfers) {
   return getUploadIdsInStatuses(transfers, CANCELLABLE_UPLOAD_STATUSES);
 }
 
-export function getPausableUploadIds(transfers) { return getUploadIdsInStatuses(transfers, PAUSABLE_UPLOAD_STATUSES); }
+export function getPausableUploadIds(transfers) {
+  return getUploadIdsInStatuses(transfers, PAUSABLE_UPLOAD_STATUSES)
+    .filter((id) => !transfers.find((item) => String(item.id ?? item.transferId ?? item.transfer_id) === id)?.deferred);
+}
 export function getResumableUploadIds(transfers) { return getUploadIdsInStatuses(transfers, new Set(['paused'])); }
 
 export function getTransferJourneyViewBox(width) {
@@ -48,7 +51,7 @@ export function getTransferJourneyPathProgress(progress, direction) {
   return direction === 'download' ? 1 - t : t;
 }
 
-export function getTransferJourneySummary(transfers) {
+export function getTransferJourneySummary(transfers, nowSeconds = Date.now() / 1000) {
   const empty = {
     visible: false,
     fileCount: 0,
@@ -56,6 +59,8 @@ export function getTransferJourneySummary(transfers) {
     totalBytes: 0,
     speedBps: 0,
     etaSeconds: null,
+    elapsedSeconds: 0,
+    progressAnimationActive: false,
     progressPercent: 0,
     state: 'Idle',
   };
@@ -74,6 +79,9 @@ export function getTransferJourneySummary(transfers) {
     ? sum + Math.max(0, Number(item.speedBps ?? item.speed_bps) || 0)
     : sum, 0);
   const moving = active.filter((item) => item.status === 'transferring');
+  const progressAnimationActive = active.some((item) => ['preparing', 'transferring', 'waiting-for-network', 'rate-limited', 'verifying'].includes(item.status));
+  const startTimes = active.map((item) => Number(item.startedAt ?? item.started_at))
+    .filter((startedAt) => Number.isFinite(startedAt) && startedAt >= 0);
   const starting = moving.length && moving.every((item) => (Number(item.bytesTransferred ?? item.bytes_transferred) || 0) === 0 && (Number(item.speedBps ?? item.speed_bps) || 0) === 0);
   const retrying = moving.find((item) => Number(item.retryCount ?? item.retry_count) > 0);
   const movingDirections = new Set(moving.map((item) => item.direction ?? item.kind));
@@ -98,6 +106,8 @@ export function getTransferJourneySummary(transfers) {
     etaSeconds: speedBps > 0 && totalBytes > transferredBytes
       ? Math.ceil((totalBytes - transferredBytes) / speedBps)
       : null,
+    elapsedSeconds: startTimes.length ? Math.max(0, Math.floor(nowSeconds - Math.min(...startTimes))) : 0,
+    progressAnimationActive,
     progressPercent: totalBytes > 0 ? Math.round((transferredBytes / totalBytes) * 1000) / 10 : 0,
     state,
   };
@@ -126,6 +136,34 @@ export function formatTransferJourneyEta(seconds) {
   if (days) return `${days} day${days === 1 ? '' : 's'}${hours ? ` ${hours} hr` : ''} left`;
   if (hours) return `${hours} hr${minutes ? ` ${minutes} min` : ''} left`;
   return `${totalMinutes} min left`;
+}
+
+export function createTransferEtaCountdown(clock = () => Date.now()) {
+  let deadline = null;
+  return {
+    update(seconds) {
+      if (seconds == null) { deadline = null; return; }
+      const estimate = Number(seconds);
+      if (!Number.isFinite(estimate) || estimate < 0) { deadline = null; return; }
+      const now = clock();
+      const current = deadline === null ? null : Math.max(0, Math.ceil((deadline - now) / 1000));
+      const deviation = current === null ? Infinity : Math.abs(Math.ceil(estimate) - current);
+      if (deadline === null || deviation >= Math.max(3, current * 0.15)) {
+        deadline = now + Math.ceil(estimate) * 1000;
+      }
+    },
+    remaining() {
+      return deadline === null ? null : Math.max(0, Math.ceil((deadline - clock()) / 1000));
+    },
+  };
+}
+
+export function formatTransferJourneyElapsed(seconds) {
+  const elapsed = Number.isFinite(Number(seconds)) ? Math.max(0, Math.floor(Number(seconds))) : 0;
+  const hours = Math.floor(elapsed / 3600);
+  const minutes = Math.floor((elapsed % 3600) / 60);
+  const remainingSeconds = elapsed % 60;
+  return `${hours} hr ${minutes} min ${remainingSeconds} sec`;
 }
 
 function renderPacket(direction, kind, phase) {
@@ -195,8 +233,9 @@ export function renderTransferJourney() {
         <div><span>Transferred</span><strong><span data-live-bytes>0 B</span><small> / <span data-live-total>0 B</span></small></strong></div>
         <div><span>Files in queue</span><strong data-live-file-count>0</strong></div>
         <div><span>Time remaining</span><strong data-live-eta>Calculating…</strong></div>
+        <div><span>Time elapsed</span><strong data-live-elapsed>0 hr 0 min 0 sec</strong></div>
       </div>
-      <div class="transfer-live-progress-row"><div class="transfer-live-progress" role="progressbar" aria-label="Overall transfer progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span data-live-progress-fill></span></div><span data-live-progress-label>0%</span></div>
+      <div class="transfer-live-progress-row"><div class="transfer-live-progress" data-transfer-active="false" role="progressbar" aria-label="Overall transfer progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span data-live-progress-fill></span></div><span data-live-progress-label>0%</span></div>
     </div>
     <div class="transfer-journey-legend" aria-hidden="true"><span><i class="upload-key"></i>Upload</span><span><i class="download-key"></i>Download</span></div>
   </section>`;
@@ -224,6 +263,7 @@ export function bindTransferJourney(section, listTransfers, cancelTransfer, paus
   const cancelButton = summary?.querySelector('[data-cancel-uploads]');
   const pauseButton = summary?.querySelector('[data-pause-uploads]');
   const cancelFeedback = summary?.querySelector('[data-cancel-feedback]');
+  const etaCountdown = createTransferEtaCountdown();
   const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
     || document.documentElement.dataset.reduceMotion === 'true';
   const duration = 5200;
@@ -290,12 +330,15 @@ export function bindTransferJourney(section, listTransfers, cancelTransfer, paus
     setText('[data-live-state]', totals.state);
     setText('[data-live-files]', `${totals.fileCount} ${totals.fileCount === 1 ? 'file' : 'files'}`);
     setText('[data-live-speed]', `${formatTransferJourneyBytes(totals.speedBps)}/s`);
-    setText('[data-live-eta]', formatTransferJourneyEta(totals.etaSeconds));
+    etaCountdown.update(totals.etaSeconds);
+    setText('[data-live-eta]', formatTransferJourneyEta(etaCountdown.remaining()));
+    setText('[data-live-elapsed]', formatTransferJourneyElapsed(totals.elapsedSeconds));
     setText('[data-live-bytes]', formatTransferJourneyBytes(totals.transferredBytes));
     setText('[data-live-total]', formatTransferJourneyBytes(totals.totalBytes));
     setText('[data-live-file-count]', String(totals.fileCount));
     setText('[data-live-progress-label]', `${totals.progressPercent}%`);
     const progress = summary.querySelector('[role="progressbar"]');
+    progress?.setAttribute('data-transfer-active', String(totals.progressAnimationActive));
     progress?.setAttribute('aria-valuenow', String(totals.progressPercent));
     const fill = summary.querySelector('[data-live-progress-fill]');
     if (fill) fill.style.width = `${totals.progressPercent}%`;
@@ -353,10 +396,18 @@ export function bindTransferJourney(section, listTransfers, cancelTransfer, paus
     finally { polling = false; }
   };
   const timer = window.setInterval(sync, 900);
+  const etaTimer = window.setInterval(() => {
+    if (!disposed && summary) {
+      const eta = summary.querySelector('[data-live-eta]');
+      const next = formatTransferJourneyEta(etaCountdown.remaining());
+      if (eta && eta.textContent !== next) eta.textContent = next;
+    }
+  }, 250);
   function dispose() {
     if (disposed) return;
     disposed = true;
     window.clearInterval(timer);
+    window.clearInterval(etaTimer);
     if (frameId) window.cancelAnimationFrame(frameId);
     resizeObserver?.disconnect();
   }

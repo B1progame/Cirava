@@ -4,9 +4,9 @@
   <p><strong>Your files, in motion.</strong><br>
   A Windows desktop client for moving files through Google Drive.</p>
   <p>
-    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/STABLE-v1.1.3-6079ed?style=for-the-badge" alt="Latest stable release: v1.1.3"></a>
+    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/STABLE-v1.2.0-6079ed?style=for-the-badge" alt="Latest stable release: v1.2.0"></a>
     <img src="https://img.shields.io/badge/platform-Windows-2aa995?style=for-the-badge" alt="Windows desktop app">
-    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/download-v1.1.3-28344d?style=for-the-badge" alt="Download Cirava 1.1.3"></a>
+    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/download-v1.2.0-28344d?style=for-the-badge" alt="Download Cirava 1.2.0"></a>
   </p>
 </div>
 
@@ -24,23 +24,25 @@ You can close the window while work is running. Cirava stays in the Windows noti
 
 ## Download and install
 
-Get the latest build from [GitHub Releases](https://github.com/B1progame/Cirava/releases/latest). The v1.1.3 release includes:
+Get the latest build from [GitHub Releases](https://github.com/B1progame/Cirava/releases/latest). The v1.2.0 release includes:
 
-- `Cirava-Setup-1.1.3.exe` for the Windows installer.
+- `Cirava-Setup-1.2.0.exe` for the Windows installer.
 - `Cirava.exe` for the standalone app, with no installer.
 - `update-manifest.json` for checksum-verified in-app updates.
+
+This release improves large Drive transfers with streamed byte-range downloads, reusable HTTP connections, and throughput-aware parallelism. Small uploads use a single multipart request; larger uploads remain resumable. The transfer center also shows elapsed time and provides clearer queue notifications.
 
 After launching Cirava, connect a Google account using a Desktop OAuth client. This is a one-time setup for the Cloud project and client ID. Follow the [step-by-step Google OAuth setup](GOOGLE_SETUP.md), then use the [wiki](https://github.com/B1progame/Cirava/wiki) for everyday tasks and troubleshooting.
 
 ## Everyday tasks
 
 - **Upload:** choose files or a folder, select the Drive destination, review the plan, and hold the start button to begin. The empty-folder upload button opens the same planner.
-- **Download:** choose a Drive item and its local destination. Folder downloads are packaged as ZIP files; Google Docs, Sheets, and Slides are exported to a supported format.
+- **Download:** hold the item's Download action to confirm, then choose a local destination. Folder downloads are packaged as ZIP files; Google Docs, Sheets, and Slides are exported to a supported format.
 - **Control transfers:** open **Transfers** to monitor progress, pause or resume work, cancel it, or inspect recent results.
 - **Use Trash:** open **Drive → Trash** to restore items, permanently empty Trash, and see account usage reported by Google.
 - **Choose updates:** select Stable or Beta in the update dialog. Updates within the same major version install in-app; a major-version change opens the installer.
 
-The optional 20 GB test upload sends real data to your Drive. It uses your Drive storage and network quota. It is not a local simulation.
+The optional 20 GB test upload sends real data to your Drive. It uses your Drive storage and network quota. It is not a local simulation. Optional 7-Zip compression lets you preview actual archive size and savings before adding a compressed upload to the queue.
 
 ## Google access and privacy
 
@@ -79,4 +81,14 @@ See [TESTING.md](TESTING.md), [ARCHITECTURE.md](ARCHITECTURE.md), and [packaging
 - [Release history and downloads](https://github.com/B1progame/Cirava/releases)
 - [Report a bug](https://github.com/B1progame/Cirava/issues)
 
-Cirava is an independent project. It is not affiliated with, endorsed by, or sponsored by Google LLC. No redistribution license has been selected yet.
+Cirava is an independent project. It is not affiliated with, endorsed by, or sponsored by Google LLC.
+
+## License
+
+Cirava's original code is provided under the [Cirava Personal Use and Modification License](LICENSE.md). You may run and privately modify it for your own non-commercial use. You may not sell, redistribute, or share copies or modified versions without written permission. This is a source-available, custom license—not an OSI-approved open-source license. Third-party components remain under their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), especially for optional 7-Zip integration.
+
+Because this repository is public, GitHub's Terms of Service allow users to view and fork it on GitHub. The custom license cannot remove those GitHub platform rights, so public hosting cannot guarantee that nobody will copy or fork the repository. See [GitHub's Terms of Service](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service) and [LICENSE.md](LICENSE.md).
+
+## Optional 7-Zip compression
+
+In the desktop app, open **Settings → 7-Zip archive compression** and turn it on. Cirava downloads the x64 installer from the official 7-Zip site, verifies its Windows signature, and installs it for the current Windows user. In the upload planner, choose **Compress this upload** and **Compress & preview** to see the actual archive size and savings before uploading. When the feature is enabled, downloads of Cirava-created archives are verified by an embedded marker, extracted to a new folder, and opened automatically. Your selected originals are never modified. 7-Zip is independent third-party software, not part of Cirava; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

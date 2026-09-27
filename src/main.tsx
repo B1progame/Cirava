@@ -10,10 +10,13 @@ import './transfer-recovery.css';
 import './offline-recovery.css';
 import { startOfflineRecovery } from './offline-recovery.js';
 import { clearCachedClientIdWhenUnconfigured } from './login-credentials.js';
-import { bindHoldToConfirm } from './hold-to-confirm.js';
+import { bindHoldToConfirm, clickAfterHold } from './hold-to-confirm.js';
 import { renderDriveFolderPicker } from './drive-folder-picker.js';
 import { createUploadBatch } from './upload-batch.js';
+import { createArchiveUploadFlow, formatArchiveSavings } from './archive-compression.js';
 import { startUploadWithFeedback } from './upload-start.js';
+import { installTransferStartNavigation, queueNextDownload } from './transfer-start-navigation.js';
+import { installTransferToastNotifications } from './transfer-toast-notifications.js';
 import { scheduleTransientUploadNoticeDismissal } from './transient-upload-notice.js';
 import { getUploadSelectionView } from './upload-planner-view.js';
 import { isDriveUploadEntrypoint } from './upload-entrypoint.js';
@@ -25,6 +28,8 @@ import { enhanceTransferHistory } from './history-live.js';
 import { enhanceTransferRecovery } from './transfer-recovery.js';
 import { getReleasePresentation } from './release-channel.js';
 import { getUpdateFeed, getUpdateFeeds } from './update-feeds.js';
+import { releaseNotesMarkdown, renderUpdateMarkdown } from './update-markdown.js';
+import { restartCiravaForUpdate } from './update-flow.js';
 import { createUpdateChannelMenuState } from './update-channel-menu.js';
 import { renderFullscreenTransferCenter } from './fullscreen-transfer.js';
 import { gsap } from 'gsap';
@@ -119,6 +124,41 @@ function ciravaNetworkControls() {
     });
   }
 }
+
+function ciravaArchiveCompressionSettings() {
+  const panel = Array.from(document.querySelectorAll<HTMLElement>('.settings-panel')).find((node) => node.textContent?.includes('Bandwidth policy'));
+  if (!panel) return;
+  let card = panel.querySelector<HTMLElement>('[data-cirava-archive-setting]');
+  if (!card) {
+    card = document.createElement('section');
+    card.className = 'archive-compression-setting';
+    card.dataset.ciravaArchiveSetting = 'true';
+    card.innerHTML = '<div><span class="mini-label">OPTIONAL FILE TOOL</span><strong>7-Zip archive compression</strong><p>Compress selected uploads to a ZIP and auto-extract Cirava archives after download.</p><small>7-Zip is independent third-party software; most 7-Zip code is GNU LGPL licensed. Enabling downloads and installs its signed x64 installer for this Windows account.</small></div><label class="archive-setting-toggle"><input type="checkbox" data-cirava-archive-enabled><span>Enable</span></label><span class="archive-setting-status" role="status" aria-live="polite" data-cirava-archive-status>Checking 7-Zip…</span>';
+    panel.append(card);
+    const checkbox = card.querySelector<HTMLInputElement>('[data-cirava-archive-enabled]')!;
+    const status = card.querySelector<HTMLElement>('[data-cirava-archive-status]')!;
+    const api = () => (window as any).pywebview?.api;
+    void api()?.get_archive_compression_status?.().then((value: any) => {
+      checkbox.checked = Boolean(value.enabled);
+      status.textContent = value.enabled ? 'Ready · Cirava archives will auto-extract after download.' : 'Off · no 7-Zip software is downloaded until enabled.';
+    }).catch((error: unknown) => { status.textContent = error instanceof Error ? error.message : '7-Zip status unavailable.'; });
+    checkbox.addEventListener('change', async () => {
+      const next = checkbox.checked;
+      checkbox.disabled = true;
+      status.textContent = next ? 'Downloading, verifying and installing 7-Zip…' : 'Turning off archive features…';
+      try {
+        const result = await api()?.set_archive_compression_enabled?.(next);
+        if (!result) throw new Error('Open the Cirava desktop app to manage the 7-Zip tool.');
+        checkbox.checked = Boolean(result.enabled);
+        status.textContent = result.enabled ? 'Ready · uploads can be compressed; Cirava archives auto-extract after download.' : 'Off · automatic extraction and compression are disabled.';
+      } catch (error) {
+        checkbox.checked = !next;
+        status.textContent = error instanceof Error ? error.message : 'Could not configure 7-Zip.';
+      } finally { checkbox.disabled = false; }
+    });
+  }
+}
+ciravaArchiveCompressionSettings();
 ciravaNetworkControls();
 
 function ciravaDiagnosticsMotion() {
@@ -170,6 +210,49 @@ function ciravaTransferSurface() {
     if (!page) return;
     const sectionTitle = page.querySelector('.section-title');
     if (!sectionTitle) return;
+    let queueControls = page.querySelector<HTMLElement>('.cirava-pending-queue-controls');
+    if (!queueControls) {
+      queueControls = document.createElement('div');
+      queueControls.className = 'cirava-pending-queue-controls';
+      queueControls.innerHTML = '<span role="status" aria-live="polite" data-pending-queue-count>Checking queued items…</span><button type="button" class="secondary" data-start-pending-queue hidden>Start queued transfers</button>';
+      sectionTitle.insertAdjacentElement('afterend', queueControls);
+      queueControls.querySelector<HTMLButtonElement>('[data-start-pending-queue]')?.addEventListener('click', async (event) => {
+        const button = event.currentTarget as HTMLButtonElement;
+        const api = (window as any).pywebview?.api;
+        if (!api?.start_queued_transfers || button.disabled) return;
+        button.disabled = true;
+        button.textContent = 'Starting…';
+        try {
+          const result = await api.start_queued_transfers();
+          button.textContent = result.started ? `Started ${result.started} transfer${result.started === 1 ? '' : 's'}` : 'Nothing waiting to start';
+          const count = queueControls?.querySelector<HTMLElement>('[data-pending-queue-count]');
+          if (count) count.textContent = 'No transfers waiting to start';
+          button.hidden = true;
+          window.setTimeout(() => { if (button.isConnected) { button.textContent = 'Start queued transfers'; button.disabled = false; } }, 2200);
+        } catch {
+          button.textContent = 'Could not start queue';
+          window.setTimeout(() => { if (button.isConnected) { button.textContent = 'Start queued transfers'; button.disabled = false; } }, 2500);
+        }
+      });
+    }
+    const refreshPendingQueue = () => {
+      const queueCount = queueControls?.querySelector<HTMLElement>('[data-pending-queue-count]');
+      const transferApi = (window as any).pywebview?.api;
+      if (!queueCount || !transferApi?.list_transfers || queueControls?.dataset.refreshing === 'true') return;
+      queueControls.dataset.refreshing = 'true';
+      void transferApi.list_transfers().then((items: any[]) => {
+        const pending = Array.isArray(items) ? items.filter((item) => item?.status === 'queued' && item?.deferred) : [];
+        if (!queueControls?.isConnected) return;
+        queueCount.textContent = pending.length ? `${pending.length} waiting to start` : 'No transfers waiting to start';
+        const button = queueControls.querySelector<HTMLButtonElement>('[data-start-pending-queue]');
+        if (button) button.hidden = pending.length === 0;
+      }).catch(() => { if (queueCount) queueCount.textContent = 'Queue status unavailable'; }).finally(() => {
+        if (!queueControls) return;
+        delete queueControls.dataset.refreshing;
+        window.setTimeout(() => { if (queueControls?.isConnected) refreshPendingQueue(); }, 1800);
+      });
+    };
+    refreshPendingQueue();
     if (!page.querySelector('.transfer-overview-strip')) {
       const strip = document.createElement('div');
       strip.className = 'transfer-overview-strip';
@@ -256,8 +339,24 @@ function ciravaNavigateToTransfers() {
       || /^(transfers?|in motion)$/i.test(node.dataset.nav || node.dataset.page || ''),
   );
   if (!item) return false;
-  item.click();
+  if (!item.classList.contains('active') && item.getAttribute('aria-current') !== 'page') item.click();
   return true;
+}
+
+function ciravaInstallTransferStartNavigation() {
+  const api = (window as any).pywebview?.api;
+  if (!api) return false;
+  installTransferToastNotifications(api, ciravaTransferToast);
+  return installTransferStartNavigation(api, ciravaNavigateToTransfers);
+}
+
+window.addEventListener('pywebviewready', () => { ciravaInstallTransferStartNavigation(); }, { once: true });
+if (!ciravaInstallTransferStartNavigation()) {
+  let attempts = 0;
+  const retry = window.setInterval(() => {
+    attempts += 1;
+    if (ciravaInstallTransferStartNavigation() || attempts >= 100) window.clearInterval(retry);
+  }, 100);
 }
 
 /*
@@ -297,14 +396,48 @@ function ciravaUploadPlannerControls() {
 
   const controls = document.createElement('div');
   controls.className = 'planner-picker-controls';
-  controls.innerHTML = '<span class="mini-label">Choose what to upload</span><div class="planner-picker-actions"><button type="button" class="secondary" data-cirava-pick-files>Choose files</button><button type="button" class="secondary" data-cirava-pick-folder>Choose folder</button><button type="button" class="secondary" data-cirava-pick-test>Use Cobalt test file · 20 GB</button></div><small class="planner-picker-status" aria-live="polite">The Cobalt card is a placeholder. Its 20 GB test upload is real Drive data and consumes your storage quota; otherwise pick local files.</small><button type="button" class="primary planner-hold-upload" data-cirava-start-upload disabled>Hold to upload</button>';
+  controls.innerHTML = '<span class="mini-label">Choose what to upload</span><div class="planner-picker-actions"><button type="button" class="secondary" data-cirava-pick-files>Choose files</button><button type="button" class="secondary" data-cirava-pick-folder>Choose folder</button><button type="button" class="secondary" data-cirava-pick-test>Use Cobalt test file · 20 GB</button></div><small class="planner-picker-status" aria-live="polite">The Cobalt card is a placeholder. Its 20 GB test upload is real Drive data and consumes your storage quota; otherwise pick local files.</small><div class="cirava-upload-queue-actions"><button type="button" class="secondary" data-cirava-queue-upload disabled>Add to queue</button><button type="button" class="primary planner-hold-upload" data-cirava-start-upload disabled>Hold to upload now</button></div>';
   (destination || summary).insertAdjacentElement('afterend', controls);
   planner.dataset.pickerReady = 'true';
 
   const close = () => planner.querySelector<HTMLButtonElement>('.modal-head .icon-button')?.click();
   const startButton = controls.querySelector<HTMLButtonElement>('[data-cirava-start-upload]')!;
+  const queueButton = controls.querySelector<HTMLButtonElement>('[data-cirava-queue-upload]')!;
   const testButton = controls.querySelector<HTMLButtonElement>('[data-cirava-pick-test]')!;
   let selectedPaths: string[] = [];
+  const archiveApi = {
+    prepare_compressed_upload: (paths: string[], level: number) => getApi()?.prepare_compressed_upload?.(paths, level),
+  };
+  const archiveFlow = createArchiveUploadFlow(archiveApi);
+  const archiveTools = document.createElement('section');
+  archiveTools.className = 'upload-archive-tools';
+  archiveTools.hidden = true;
+  archiveTools.innerHTML = '<label class="upload-archive-choice"><input type="checkbox" data-cirava-compress-choice><span><strong>Compress this upload</strong><small>Create a ZIP with 7-Zip; preview its real size before uploading.</small></span></label><label class="archive-level-choice">Compression level<select data-cirava-compression-level><option value="1">1 · Fastest</option><option value="3">3 · Fast</option><option value="5" selected>5 · Balanced</option><option value="7">7 · High</option><option value="9">9 · Maximum</option></select></label><button type="button" class="secondary" data-cirava-compression-preview>Compress &amp; preview</button><span class="upload-archive-result" role="status" aria-live="polite" data-cirava-compression-result>Choose files to preview the archive size.</span>';
+  controls.querySelector('.cirava-upload-queue-actions')?.before(archiveTools);
+  const compressChoice = archiveTools.querySelector<HTMLInputElement>('[data-cirava-compress-choice]')!;
+  const archiveResult = archiveTools.querySelector<HTMLElement>('[data-cirava-compression-result]')!;
+  const refreshArchiveAvailability = async () => {
+    try { archiveTools.hidden = !(await getApi()?.get_archive_compression_status?.())?.enabled; }
+    catch { archiveTools.hidden = true; }
+  };
+  void refreshArchiveAvailability();
+  archiveTools.querySelector<HTMLButtonElement>('[data-cirava-compression-preview]')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    if (!selectedPaths.length) { archiveResult.textContent = 'Choose local files or a folder first.'; return; }
+    button.disabled = true; button.textContent = 'Compressing for an exact preview…'; archiveResult.textContent = 'Creating the archive locally. The original files stay unchanged.';
+    try {
+      const prepared = await archiveFlow.preview(selectedPaths, Number(archiveTools.querySelector<HTMLSelectElement>('[data-cirava-compression-level]')?.value || 5));
+      compressChoice.checked = true;
+      archiveResult.textContent = formatArchiveSavings(prepared);
+      startButton.textContent = 'Hold to upload compressed ZIP';
+      setStatus('Archive ready. Hold to upload this exact ZIP; the selected originals are unchanged.');
+    } catch (error) { archiveResult.textContent = error instanceof Error ? error.message : 'Could not prepare the ZIP archive.'; }
+    finally { button.disabled = false; button.textContent = 'Compress & preview'; }
+  });
+  compressChoice.addEventListener('change', () => {
+    if (!compressChoice.checked) { archiveFlow.clear(); startButton.textContent = 'Hold to upload'; archiveResult.textContent = 'Compression is off for this upload.'; }
+    else if (!archiveFlow.getPrepared(selectedPaths)) { archiveResult.textContent = 'Preview and compress the selection before starting the upload.'; }
+  });
   const setStatus = (message: string, error = false) => {
     const status = controls.querySelector<HTMLElement>('.planner-picker-status');
     if (status) { status.textContent = message; status.dataset.error = String(error); }
@@ -323,6 +456,9 @@ function ciravaUploadPlannerControls() {
       setStatus('Reading the selection…');
       const summaryResult = await api.summarize_local_paths(paths);
       selectedPaths = paths;
+      archiveFlow.clear();
+      compressChoice.checked = false;
+      archiveResult.textContent = 'Choose files to preview the archive size.';
       testUpload = false;
       cobaltCard?.classList.remove('is-test-selection');
       cobaltCard?.setAttribute('aria-pressed', 'false');
@@ -330,6 +466,7 @@ function ciravaUploadPlannerControls() {
       if (sampleDetails) sampleDetails.textContent = `${summaryResult.bytes ? (summaryResult.bytes / 1024 ** 3).toFixed(2) + ' GB' : 'Local selection'} · ${summaryResult.files} file${summaryResult.files === 1 ? '' : 's'}`;
       if (previewCopy) previewCopy.textContent = `Cirava will upload the selected local files to ${destinationName}.`;
       startButton.disabled = false;
+      queueButton.disabled = false;
       startButton.textContent = 'Hold to upload';
       setStatus(`${summaryResult.files} file${summaryResult.files === 1 ? '' : 's'} ready. Hold Start upload to queue them.`);
     } catch (error) {
@@ -348,6 +485,7 @@ function ciravaUploadPlannerControls() {
   if (sampleDetails) sampleDetails.textContent = 'Real 20 GB Drive upload · uses your storage quota';
     if (previewCopy) previewCopy.textContent = 'A local sparse test file will be created and uploaded to the selected Drive folder. Hold to confirm; nothing starts before then.';
     startButton.disabled = false;
+    queueButton.disabled = false;
     startButton.textContent = 'Hold to upload test file';
   setStatus('20 GB test upload selected. This uses Google Drive storage and starts only after you hold the button.');
   };
@@ -362,10 +500,11 @@ function ciravaUploadPlannerControls() {
       setStatus('Choose files, a folder, or the explicit 20 GB test file first.', true);
       return;
     }
+    if (compressChoice.checked && !archiveFlow.getPrepared(selectedPaths)) { setStatus('Preview and compress the selected files before uploading them.', true); archiveResult.textContent = 'No prepared archive yet.'; return; }
     startButton.disabled = true;
     try {
       const created = await startUploadWithFeedback({
-        createBatch: () => createUploadBatch({ api, paths: selectedPaths, destinationId, testUpload }),
+        createBatch: () => createUploadBatch({ api, paths: compressChoice.checked ? archiveFlow.uploadPaths(selectedPaths) : selectedPaths, destinationId, testUpload }),
         navigate: () => {
           const opened = ciravaNavigateToTransfers();
           if (opened) close();
@@ -382,6 +521,22 @@ function ciravaUploadPlannerControls() {
   controls.querySelector<HTMLButtonElement>('[data-cirava-pick-files]')?.addEventListener('click', () => void choose('files'));
   controls.querySelector<HTMLButtonElement>('[data-cirava-pick-folder]')?.addEventListener('click', () => void choose('folder'));
   startButton.addEventListener('click', () => void startUpload());
+  queueButton.addEventListener('click', async () => {
+    const api = getApi();
+    if (!api || (!testUpload && !selectedPaths.length)) return;
+    queueButton.disabled = true;
+    try {
+      if (compressChoice.checked && !archiveFlow.getPrepared(selectedPaths)) throw new Error('Preview and compress the selected files before adding them to the queue.');
+      const records = await createUploadBatch({ api, paths: compressChoice.checked ? archiveFlow.uploadPaths(selectedPaths) : selectedPaths, destinationId, testUpload, startImmediately: false });
+      if (!Array.isArray(records) || !records.length) throw new Error('No upload items were added to the queue.');
+      setStatus(`${records.length} upload${records.length === 1 ? '' : 's'} waiting in Transfers. Start them there when ready.`);
+      const opened = ciravaNavigateToTransfers();
+      if (opened) close();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Could not queue this upload.', true);
+      queueButton.disabled = false;
+    }
+  });
   bindHoldToConfirm(startButton, { label: 'upload' });
   const loadFolders = async (parentId: string) => {
     const api = getApi();
@@ -448,14 +603,43 @@ function ciravaOpenDirectUploadPlanner() {
       <section class="cirava-upload-step cirava-upload-local-step"><div class="cirava-upload-step-head"><span class="mini-label">01 · FROM THIS DEVICE</span><span class="cirava-upload-step-caption">Local selection</span></div><div class="cirava-upload-selection" data-cirava-upload-selection data-kind="empty" data-has-selection="false"><span class="cirava-upload-selection-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14.5v3A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5v-3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cirava-upload-selection-copy"><strong data-cirava-selection-title>Choose files or a folder</strong><small data-cirava-selection-detail>Nothing starts until you hold Start upload.</small><span class="cirava-upload-selected-names" data-cirava-selection-names></span></span></div><div class="cirava-upload-actions"><button type="button" class="primary cirava-upload-pick-button" data-cirava-upload-files>Choose files</button><button type="button" class="secondary cirava-upload-pick-button" data-cirava-upload-folder>Choose folder</button></div><button type="button" class="cirava-upload-test-choice" data-cirava-upload-test><span class="cirava-upload-test-mark" aria-hidden="true">✳</span><span><strong>Use the Cobalt test file</strong><small>20 GB sparse test · created only after you hold upload</small></span><span class="cirava-upload-test-arrow" aria-hidden="true">›</span></button></section>
       <section class="cirava-upload-step cirava-upload-destination-step"><div class="cirava-upload-step-head"><span class="mini-label">02 · GOOGLE DRIVE</span><span class="cirava-upload-step-caption">Destination</span></div><button type="button" class="cirava-upload-destination" data-cirava-upload-destination><span class="cirava-upload-destination-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M3.5 7.25A2.25 2.25 0 0 1 5.75 5h4l2 2h6.5A2.25 2.25 0 0 1 20.5 9.25v8a2.25 2.25 0 0 1-2.25 2.25h-12A2.75 2.75 0 0 1 3.5 16.75z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M4 10h16" stroke="currentColor" stroke-width="1.4"/></svg></span><span class="cirava-upload-destination-copy"><small>Upload to</small><strong data-cirava-upload-destination-name>My Drive / Workspace</strong><span>Click to choose another folder</span></span><span class="cirava-upload-destination-arrow" aria-hidden="true">›</span></button><div class="cirava-upload-folders" data-cirava-upload-folders hidden></div><div class="cirava-upload-route" aria-label="Files move from this device to Google Drive"><div class="cirava-upload-route-node"><span class="cirava-upload-route-icon"><svg viewBox="0 0 24 24" fill="none"><rect x="5" y="3" width="14" height="18" rx="2.4" stroke="currentColor" stroke-width="1.6"/><path d="M9 7h6M9 11h6M9 15h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span><span><strong>This device</strong><small>Your files</small></span></div><div class="cirava-upload-route-line"><i></i></div><div class="cirava-upload-route-node"><span class="cirava-upload-route-icon is-cloud"><svg viewBox="0 0 24 24" fill="none"><path d="M7.2 18.2h10.1a3.7 3.7 0 0 0 .5-7.36A5.7 5.7 0 0 0 7.1 9.3a4.45 4.45 0 0 0 .1 8.9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 16V10m0 0-2.3 2.3M12 10l2.3 2.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span><strong>Google Drive</strong><small>Resumable transfer</small></span></div></div><p class="cirava-upload-route-note">If your connection drops, Cirava keeps your progress so you can resume.</p></section>
     </div>
-    <footer class="cirava-upload-footer"><div class="cirava-upload-footer-copy"><span class="cirava-upload-status-dot" aria-hidden="true"></span><span><strong data-cirava-upload-footer-title>Nothing is queued yet</strong><small class="cirava-upload-status" data-cirava-upload-status aria-live="polite">Choose files and a destination to continue.</small></span></div><div class="cirava-upload-footer-action"><button type="button" class="primary" data-cirava-upload-start disabled><span data-cirava-upload-start-label>Start upload</span></button><small>Hold to confirm</small></div></footer>
+    <footer class="cirava-upload-footer"><div class="cirava-upload-footer-copy"><span class="cirava-upload-status-dot" aria-hidden="true"></span><span><strong data-cirava-upload-footer-title>Nothing is queued yet</strong><small class="cirava-upload-status" data-cirava-upload-status aria-live="polite">Choose files and a destination to continue.</small></span></div><div class="cirava-upload-footer-action"><button type="button" class="secondary" data-cirava-upload-queue disabled>Add to queue</button><button type="button" class="primary" data-cirava-upload-start disabled><svg class="cirava-upload-start-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 15V4m0 0L8 8m4-4 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 13.5v3A2.5 2.5 0 0 0 8.5 19h7a2.5 2.5 0 0 0 2.5-2.5v-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span data-cirava-upload-start-label>Start upload</span></button><small>Hold to confirm start</small></div></footer>
   </section>`;
   document.body.appendChild(backdrop);
   const sheet = backdrop.querySelector<HTMLElement>('.cirava-direct-upload-sheet')!;
   const status = backdrop.querySelector<HTMLElement>('[data-cirava-upload-status]')!;
   const selection = backdrop.querySelector<HTMLElement>('[data-cirava-upload-selection]')!;
   const start = backdrop.querySelector<HTMLButtonElement>('[data-cirava-upload-start]')!;
+  const queueUpload = backdrop.querySelector<HTMLButtonElement>('[data-cirava-upload-queue]')!;
   const testChoice = backdrop.querySelector<HTMLButtonElement>('[data-cirava-upload-test]')!;
+  const archiveFlow = createArchiveUploadFlow({ prepare_compressed_upload: (paths: string[], level: number) => getApi()?.prepare_compressed_upload?.(paths, level) });
+  const archiveTools = document.createElement('section');
+  archiveTools.className = 'upload-archive-tools';
+  archiveTools.innerHTML = '<label class="upload-archive-choice"><input type="checkbox" data-cirava-compress-choice><span><strong>Compress this upload</strong><small>Build a ZIP with 7-Zip; preview the exact size and savings.</small></span></label><label class="archive-level-choice">Compression level<select data-cirava-compression-level><option value="1">1 · Fastest</option><option value="3">3 · Fast</option><option value="5" selected>5 · Balanced</option><option value="7">7 · High</option><option value="9">9 · Maximum</option></select></label><button type="button" class="secondary" data-cirava-compression-preview>Compress &amp; preview</button><span class="upload-archive-result" role="status" aria-live="polite" data-cirava-compression-result>Compression is optional. Enable 7-Zip in Settings first.</span>';
+  backdrop.querySelector('.cirava-upload-local-step')?.append(archiveTools);
+  const compressChoice = archiveTools.querySelector<HTMLInputElement>('[data-cirava-compress-choice]')!;
+  const archiveResult = archiveTools.querySelector<HTMLElement>('[data-cirava-compression-result]')!;
+  void getApi()?.get_archive_compression_status?.().then((result: any) => {
+    archiveTools.hidden = !result.enabled;
+    if (!result.enabled) archiveResult.textContent = 'Enable 7-Zip archive tools in Settings to use this option.';
+  }).catch(() => { archiveTools.hidden = true; });
+  archiveTools.querySelector<HTMLButtonElement>('[data-cirava-compression-preview]')!.addEventListener('click', async (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    if (!state.paths.length) { archiveResult.textContent = 'Choose files or a folder first.'; return; }
+    button.disabled = true; button.textContent = 'Compressing…'; archiveResult.textContent = 'Creating the archive locally; original files are not changed.';
+    try {
+      const result = await archiveFlow.preview(state.paths, Number(archiveTools.querySelector<HTMLSelectElement>('[data-cirava-compression-level]')?.value || 5));
+      compressChoice.checked = true;
+      archiveResult.textContent = formatArchiveSavings(result);
+      setStartLabel('Start compressed upload');
+      status.textContent = 'Exact archive prepared. Hold to upload this ZIP.';
+    } catch (error) { archiveResult.textContent = error instanceof Error ? error.message : 'Could not prepare the archive.'; }
+    finally { button.disabled = false; button.textContent = 'Compress & preview'; }
+  });
+  compressChoice.addEventListener('change', () => {
+    if (!compressChoice.checked) { archiveFlow.clear(); setStartLabel('Start upload'); archiveResult.textContent = 'Compression is off for this upload.'; }
+    else if (!archiveFlow.getPrepared(state.paths)) archiveResult.textContent = 'Preview and compress these files before uploading.';
+  });
   const testChoiceDetail = testChoice.querySelector<HTMLElement>('small');
   if (testChoiceDetail) testChoiceDetail.textContent = '20 GB real Drive upload · consumes your Drive storage quota';
   const folders = backdrop.querySelector<HTMLElement>('[data-cirava-upload-folders]')!;
@@ -487,12 +671,16 @@ function ciravaOpenDirectUploadPlanner() {
   const setStartLabel = (label: string) => { startLabel.textContent = label; };
 
   const updateSelection = (paths: string[], summary?: { files: number; folders: number; bytes: number }) => {
+    archiveFlow.clear();
+    compressChoice.checked = false;
+    archiveResult.textContent = 'Choose files to preview the archive size.';
     state.paths = paths;
     state.summary = summary;
     state.testUpload = false;
     renderSelection();
     setStartLabel('Start upload');
     start.disabled = !state.paths.length || !getApi()?.create_upload_batch;
+    queueUpload.disabled = start.disabled;
   };
   const choose = async (kind: 'files' | 'folder') => {
     const api = getApi();
@@ -514,9 +702,12 @@ function ciravaOpenDirectUploadPlanner() {
     state.paths = [];
     state.summary = undefined;
     state.testUpload = true;
+    archiveFlow.clear();
+    compressChoice.checked = false;
     renderSelection();
     setStartLabel('Start test upload');
     start.disabled = false;
+    queueUpload.disabled = false;
     status.textContent = 'Test payload selected. Choose its Drive folder, then hold to queue the upload.';
   });
 
@@ -536,13 +727,14 @@ function ciravaOpenDirectUploadPlanner() {
   start.addEventListener('click', async () => {
     const api = getApi();
     if ((!state.paths.length && !state.testUpload) || (!api?.create_upload_batch && !state.testUpload)) return;
+    if (compressChoice.checked && !archiveFlow.getPrepared(state.paths)) { status.textContent = 'Preview and compress the selected items before starting this upload.'; return; }
     start.disabled = true;
     start.setAttribute('aria-busy', 'true');
     backdrop.dataset.uploading = 'true';
     setStartLabel('Preparing…');
     try {
       await startUploadWithFeedback({
-        createBatch: () => createUploadBatch({ api, paths: state.paths, destinationId: state.destinationId, testUpload: state.testUpload }),
+        createBatch: () => createUploadBatch({ api, paths: compressChoice.checked ? archiveFlow.uploadPaths(state.paths) : state.paths, destinationId: state.destinationId, testUpload: state.testUpload }),
         navigate: () => {
           const opened = ciravaNavigateToTransfers();
           if (opened) close();
@@ -556,6 +748,22 @@ function ciravaOpenDirectUploadPlanner() {
       delete backdrop.dataset.uploading;
       setStartLabel(state.testUpload ? 'Start test upload' : 'Start upload');
       status.textContent = error instanceof Error ? error.message : 'Could not queue this upload.';
+    }
+  });
+  queueUpload.addEventListener('click', async () => {
+    const api = getApi();
+    if ((!state.paths.length && !state.testUpload) || (!api?.create_upload_batch && !state.testUpload)) return;
+    if (compressChoice.checked && !archiveFlow.getPrepared(state.paths)) { status.textContent = 'Preview and compress these files before adding them to the queue.'; return; }
+    queueUpload.disabled = true;
+    status.textContent = 'Adding uploads to the waiting queue…';
+    try {
+      const records = await createUploadBatch({ api, paths: compressChoice.checked ? archiveFlow.uploadPaths(state.paths) : state.paths, destinationId: state.destinationId, testUpload: state.testUpload, startImmediately: false });
+      if (!Array.isArray(records) || !records.length) throw new Error('No upload items were added to the queue.');
+      ciravaNavigateToTransfers();
+      close();
+    } catch (error) {
+      queueUpload.disabled = false;
+      status.textContent = error instanceof Error ? error.message : 'Could not queue these uploads.';
     }
   });
   bindHoldToConfirm(start, { label: 'upload' });
@@ -576,18 +784,6 @@ function ciravaInstallDirectUploadEntrypoints() {
   });
 }
 ciravaSchedule(ciravaInstallDirectUploadEntrypoints);
-
-function ciravaInstallDriveDownloadHolds() {
-  document.querySelectorAll<HTMLButtonElement>('button[aria-label*="download" i], button[title*="download" i], [role="dialog"] button, .modal button').forEach((button) => {
-    const label = `${button.getAttribute('aria-label') || ''} ${button.title || ''} ${button.textContent || ''}`.trim();
-    const isDownloadAction = /\bdownload\b/i.test(label);
-    const isInFileFlow = button.matches('[aria-label*="download" i], [title*="download" i]')
-      || Boolean(button.closest('[role="dialog"], .modal, .file-row, .file-card, .file-actions'));
-    if (!isDownloadAction || !isInFileFlow) return;
-    bindHoldToConfirm(button, { label: 'download' });
-  });
-}
-ciravaSchedule(ciravaInstallDriveDownloadHolds);
 
 ciravaSchedule(ciravaUploadPlannerControls);
 
@@ -881,6 +1077,7 @@ function ciravaDriveDeleteConfirmation(requested: any, name: string) {
    file object in a closure; this enhancement resolves the visible name back
    through Drive so edit/delete are backed by a real file ID. */
 function ciravaEnhanceDriveRows() {
+  ciravaInstallDriveDownloadHolds();
   document.querySelectorAll<HTMLElement>('.file-row').forEach((row) => {
     if (row.querySelector('[data-cirava-row-action]')) return;
     const name = row.querySelector('.file-name strong')?.textContent?.trim();
@@ -897,7 +1094,46 @@ function ciravaEnhanceDriveRows() {
     actions.prepend(make('Delete', 'cirava:trash-drive-file', 'row-delete'));
   });
 }
+function ciravaInstallDriveDownloadHolds() {
+  document.querySelectorAll<HTMLButtonElement>('.file-row-actions .row-download').forEach((button) => {
+    if (button.dataset.holdConfirmBound === 'true') return;
+    bindHoldToConfirm(button, { label: 'download' });
+  });
+}
 requestAnimationFrame(ciravaEnhanceDriveRows);
+
+function ciravaTransferToast(notice: { message?: string; type?: string; direction?: string }) {
+  let stack = document.querySelector<HTMLElement>('[data-cirava-transfer-toasts]');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.dataset.ciravaTransferToasts = 'true';
+    stack.className = 'cirava-transfer-toasts';
+    stack.setAttribute('aria-label', 'Transfer notifications');
+    stack.setAttribute('aria-live', 'polite');
+    stack.setAttribute('aria-relevant', 'additions');
+    document.body.append(stack);
+  }
+  const toast = document.createElement('div');
+  const direction = notice.direction === 'download' ? 'download' : 'upload';
+  toast.className = 'cirava-transfer-toast';
+  toast.dataset.state = notice.type || 'queued';
+  toast.dataset.direction = direction;
+  toast.setAttribute('role', 'status');
+  const icon = document.createElement('span');
+  icon.className = 'cirava-transfer-toast-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.textContent = direction === 'download' ? '↓' : '↑';
+  const message = document.createElement('span');
+  message.className = 'cirava-transfer-toast-message';
+  message.textContent = notice.message || 'Transfer updated';
+  toast.append(icon, message);
+  stack.append(toast);
+  while (stack.childElementCount > 4) stack.firstElementChild?.remove();
+  window.setTimeout(() => {
+    toast.classList.add('is-leaving');
+    window.setTimeout(() => toast.remove(), 220);
+  }, notice.type === 'started' ? 6500 : 5000);
+}
 
 let ciravaDriveToastTimer = 0;
 function ciravaDriveToast(message: string, state: 'busy' | 'success' | 'error' = 'success') {
@@ -977,10 +1213,24 @@ function ciravaDriveRowActionMenu() {
           bypassNativeClick = trigger;
           trigger.click();
         }));
-        menu.append(actionButton('Download as ZIP', () => { void ciravaDownloadFolderZip(name); }));
+        const zipDownloadButton = actionButton('Download as ZIP', () => { void ciravaDownloadFolderZip(name); });
+        bindHoldToConfirm(zipDownloadButton, { label: 'download ZIP' });
+        menu.append(zipDownloadButton);
         menu.append(actionButton('Open folder', () => row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))));
       } else {
-        menu.append(actionButton(row.querySelector('.folder-count') ? 'Export file' : 'Download', () => nativeDownload?.click()));
+        if (!row.querySelector('.folder-count')) {
+          const queueDownloadButton = actionButton('Queue download…', () => {
+            const api = (window as any).pywebview?.api;
+            if (!queueNextDownload(api)) { ciravaDriveToast('Download queue is not available in this build.', 'error'); return; }
+            ciravaDriveToast('Choose a save location, then confirm to add this download to Transfers.');
+            clickAfterHold(nativeDownload);
+          });
+          bindHoldToConfirm(queueDownloadButton, { label: 'queue download' });
+          menu.append(queueDownloadButton);
+        }
+        const downloadButton = actionButton(row.querySelector('.folder-count') ? 'Export file' : 'Download', () => clickAfterHold(nativeDownload));
+        bindHoldToConfirm(downloadButton, { label: 'download' });
+        menu.append(downloadButton);
         menu.append(actionButton('Edit file', () => window.dispatchEvent(new CustomEvent('cirava:edit-drive-file', { detail: { name } }))));
       }
       menu.append(actionButton('Delete', () => window.dispatchEvent(new CustomEvent('cirava:trash-drive-file', { detail: { name } })), true));
@@ -1054,7 +1304,7 @@ requestAnimationFrame(ciravaHomeOrbit);
 /* Keep release labels and About details aligned with the channel embedded at build time. */
 function ciravaSyncCandidateVersion() {
   const env = (import.meta as any).env || {};
-const version = env.VITE_CIRAVA_APP_VERSION || env.VITE_CIRAVA_VERSION || '1.1.3';
+const version = env.VITE_CIRAVA_APP_VERSION || env.VITE_CIRAVA_VERSION || '1.2.0';
   const presentation = getReleasePresentation(version, env.VITE_CIRAVA_APP_CHANNEL);
   document.querySelectorAll<HTMLElement>('.about-fact').forEach((fact) => {
     if (fact.querySelector('span')?.textContent?.trim() === 'Version') {
@@ -1080,7 +1330,7 @@ function ciravaUpdateScreen() {
   document.documentElement.dataset.ciravaUpdateBound = 'true';
   const env = (import.meta as any).env || {};
   const manifestUrls = getUpdateFeeds(env);
-  const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.1.3';
+  const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.2.0';
   const initialChannel = env.VITE_CIRAVA_APP_CHANNEL === 'beta' ? 'beta' : 'release';
   const channelMenuState = createUpdateChannelMenuState(initialChannel);
   let selectedChannel = channelMenuState.selected;
@@ -1166,9 +1416,9 @@ function ciravaUpdateScreen() {
     const title = document.createElement('h2'); title.id = 'cirava-update-title'; title.textContent = 'Keeping Cirava current';
     const copy = document.createElement('p'); copy.className = 'cirava-update-copy';
     const progress = document.createElement('div'); progress.className = 'cirava-update-progress'; progress.setAttribute('role', 'status');
-    const notes = document.createElement('ul'); notes.className = 'cirava-update-notes';
+    const notes = document.createElement('div'); notes.className = 'cirava-update-notes';
     const trust = document.createElement('div'); trust.className = 'cirava-update-trust';
-    trust.innerHTML = '<span aria-hidden="true">✓</span><span><strong>Verified before install</strong><small>You choose when Cirava restarts.</small></span>';
+    trust.innerHTML = '<span aria-hidden="true">✓</span><span><strong>Verified before install</strong><small>Cirava restarts automatically after verification.</small></span>';
     const actions = document.createElement('div'); actions.className = 'cirava-update-actions';
     const cancel = document.createElement('button'); cancel.className = 'secondary'; cancel.textContent = 'Close';
     const primary = document.createElement('button'); primary.className = 'primary';
@@ -1185,7 +1435,7 @@ function ciravaUpdateScreen() {
     actions.append(trust, cancel, primary); dialog.append(close, identity, title, copy, channelField, progress, notes, actions); backdrop.append(dialog); document.body.append(backdrop);
     const setStatus = (heading: string, message: string, busy: boolean) => {
       title.textContent = heading; copy.textContent = message; progress.classList.toggle('is-busy', busy);
-      progress.classList.toggle('is-idle', !busy); progress.textContent = busy ? ' ' : ''; primary.disabled = busy; channelTrigger.disabled = busy;
+      progress.classList.toggle('is-idle', !busy); progress.textContent = busy ? ' ' : ''; primary.disabled = busy; channelTrigger.disabled = busy; cancel.disabled = busy;
     };
     if (!bridge?.check_for_update) {
       setStatus('Updater unavailable', 'Release feeds are ready, but this preview has no desktop updater attached. Open Cirava to check and install updates.', false);
@@ -1211,26 +1461,26 @@ function ciravaUpdateScreen() {
         return;
       }
       copy.textContent = updateType === 'installer'
-        ? 'This major-version upgrade uses the verified setup program. You’ll review and start it when you’re ready.'
-        : 'This update stays within the current major version. Cirava will verify and replace only its app file, then reopen—no installer wizard.';
-      notes.replaceChildren(...(result.release_notes || []).map((line: string) => { const item = document.createElement('li'); item.textContent = line; return item; }));
+        ? 'This major-version upgrade uses the verified setup program. After the download finishes, Cirava closes, installs, and opens the new version.'
+        : 'This update stays within the current major version. Cirava verifies and replaces only its app file, then reopens—no installer wizard.';
+      renderUpdateMarkdown(notes, releaseNotesMarkdown(result.release_notes_markdown, result.release_notes, result.version), result.version);
       primary.hidden = false; primary.textContent = 'Download update';
       primary.onclick = async () => {
         primary.disabled = true; setStatus('Downloading update', updateType === 'installer' ? 'Downloading the major-version installer and verifying its integrity…' : 'Downloading Cirava.exe and verifying its integrity…', true);
         try {
           const staged = await bridge.stage_update(manifestUrl, currentVersion);
           const stagedType = staged.update_type || updateType;
-          setStatus(`Cirava ${staged.version} is downloaded`, stagedType === 'installer' ? 'The installer passed verification and is ready. Save your work before continuing.' : 'Cirava.exe passed verification and is ready. Save your work; the app will close briefly and reopen with the update.', false);
-          primary.disabled = false; primary.textContent = stagedType === 'installer' ? 'Open installer' : 'Restart and update';
-          primary.onclick = async () => {
-            primary.disabled = true; setStatus(stagedType === 'installer' ? 'Starting major upgrade' : 'Applying app update', stagedType === 'installer' ? 'The verified setup program is opening.' : 'Cirava is handing the verified app file to Windows, then will reopen automatically.', true);
+          const restart = async () => {
+            primary.disabled = true;
+            setStatus(stagedType === 'installer' ? 'Installing the major update' : 'Restarting Cirava to update', stagedType === 'installer' ? 'The verified installer is running. Cirava will reopen when installation finishes.' : 'The verified app is being replaced. Cirava will reopen automatically.', true);
             try {
-              await bridge.restart_staged_update(staged.path, stagedType);
-              if (stagedType === 'in_place') await bridge.request_quit();
-              else setStatus('Installer launched', 'Cirava will close while the major-version upgrade runs.', false);
+              await restartCiravaForUpdate(bridge, staged, stagedType);
+            } catch (error) {
+              setStatus('Automatic restart could not start', `The download is verified and still saved. ${error instanceof Error ? error.message : 'Try restarting the update.'}`, false);
+              primary.disabled = false; primary.textContent = 'Retry restart'; primary.onclick = restart;
             }
-            catch (error) { setStatus('Couldn’t start the update', error instanceof Error ? error.message : 'Try downloading the update again.', false); primary.disabled = false; primary.textContent = 'Try again'; }
           };
+          void restart();
         } catch (error) {
           setStatus('Download didn’t finish', error instanceof Error ? error.message : 'Check your connection and try again.', false);
           primary.disabled = false; primary.textContent = 'Try again';
@@ -1468,6 +1718,7 @@ const ciravaEnhancementObserver = new MutationObserver(() => {
   ciravaEnhancementFrame = window.requestAnimationFrame(() => {
     ciravaEnhancementFrame = null;
     ciravaNetworkControls();
+    ciravaArchiveCompressionSettings();
     ciravaNormalizeBrandAssets();
     ciravaInstallSettingsGlassSelector();
     ciravaDiagnosticsMotion();

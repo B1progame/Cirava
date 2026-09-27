@@ -29,13 +29,26 @@ class AdaptiveControllerTests(unittest.TestCase):
             controller.observe(throughput_bps=32 * 1024 * 1024, latency_ms=2000, error_rate=0, rate_limited=False)
         self.assertEqual(controller.chunk_size, 128 * 1024 * 1024)
 
-    def test_concurrency_grows_after_stable_ranges_and_backs_off_on_error(self):
-        controller = AdaptiveConcurrencyController(workers=3, max_workers=8)
-        for _ in range(4):
-            controller.observe(latency_ms=80)
+    def test_download_concurrency_uses_aggregate_throughput_not_range_duration(self):
+        controller = AdaptiveConcurrencyController(workers=4, max_workers=8)
+        for _ in range(3):
+            controller.observe(latency_ms=12_000, error=False)
         self.assertEqual(controller.workers, 4)
-        controller.observe(latency_ms=1200, error=True)
-        self.assertEqual(controller.workers, 3)
+
+    def test_download_concurrency_does_not_grow_from_fast_rtt_without_speed_gain_evidence(self):
+        controller = AdaptiveConcurrencyController(workers=4, max_workers=8)
+        for _ in range(8):
+            controller.observe(latency_ms=40, error=False)
+        self.assertEqual(controller.workers, 4)
+
+    def test_download_concurrency_keeps_a_worker_trial_only_when_batch_speed_improves(self):
+        controller = AdaptiveConcurrencyController(workers=4, max_workers=8)
+        controller.observe(throughput_bps=10_000_000)
+        for _ in range(4):
+            controller.observe(throughput_bps=10_000_000)
+        self.assertEqual(controller.workers, 5)
+        self.assertEqual(controller.observe(throughput_bps=10_700_000), 5)
+        self.assertEqual(controller.observe(throughput_bps=10_700_000, error=True), 4)
 
     def test_upload_concurrency_hill_climber_stays_within_one_to_eight(self):
         controller = AdaptiveUploadConcurrencyController(workers=2, max_workers=4)
@@ -85,6 +98,11 @@ class AdaptiveControllerTests(unittest.TestCase):
 
 
 class TransferStoreTests(unittest.TestCase):
+    def test_transfer_start_timestamp_is_set_once_and_preserved_on_resume(self):
+        record = TransferRecord(id="timed", direction="upload", filename="x", local_path="x", size=1)
+        self.assertEqual(record.mark_started(now=1200.5), 1200.5)
+        self.assertEqual(record.mark_started(now=1300.0), 1200.5)
+
     def test_legacy_store_migrates_upload_session_column(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "legacy.db"
@@ -196,12 +214,46 @@ class TransferEngineTests(unittest.TestCase):
         ranges.mark_complete(3)
         self.assertEqual(ranges.next_pending(), (6, 8))
 
+    def test_range_map_counts_persisted_bytes_including_a_short_final_range(self):
+        ranges = RangeMap(file_size=10, segment_size=4)
+        ranges.mark_complete(0)
+        ranges.mark_complete(8)
+        self.assertEqual(ranges.completed_bytes, 6)
+
     def test_segmented_downloader_writes_each_range_to_its_final_offset(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "movie.part"
             downloader = SegmentedDownloader(destination, file_size=8, segment_size=2, workers=2)
             downloader.download(lambda start, end: bytes(range(start, end + 1)))
             self.assertEqual(destination.read_bytes(), bytes(range(8)))
+
+    def test_segmented_downloader_reports_aggregate_bytes_per_second_for_each_wave(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "measured.part"
+            waves = []
+            downloader = SegmentedDownloader(destination, file_size=8, segment_size=2, workers=2, wave_observed=lambda *sample: waves.append(sample))
+            downloader.download(lambda start, end: bytes(range(start, end + 1)))
+            self.assertEqual(len(waves), 1)
+            transferred, elapsed, failed, rate_limited = waves[0]
+            self.assertEqual(transferred, 8)
+            self.assertGreater(elapsed, 0)
+            self.assertFalse(failed)
+            self.assertFalse(rate_limited)
+
+    def test_segmented_downloader_streams_each_range_into_its_file_offsets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "streamed.part"
+
+            def fetch_chunks(start, end):
+                for value in range(start, end + 1):
+                    yield bytes([value])
+
+            downloader = SegmentedDownloader(destination, file_size=8, segment_size=4, workers=2)
+            downloader.download(fetch_chunks)
+
+            self.assertEqual(destination.read_bytes(), bytes(range(8)))
+            resumed_ranges = RangeMap.load(destination.with_name(destination.name + ".ranges.json"), file_size=8, segment_size=4)
+            self.assertEqual(resumed_ranges.completed_starts, (0, 4))
 
     def test_segmented_downloader_persists_completed_ranges_for_resume(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -225,6 +277,18 @@ class TransferEngineTests(unittest.TestCase):
             resumed.download(lambda start, end: (resumed_calls.append(start) or bytes(range(start, end + 1))))
             self.assertEqual(resumed_calls, [2])
             self.assertEqual(destination.read_bytes(), bytes(range(4)))
+
+    def test_segmented_downloader_discards_corrupt_resume_metadata_and_restarts_ranges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "corrupt.part"
+            destination.with_name(destination.name + ".ranges.json").write_text("{broken", encoding="utf-8")
+
+            downloader = SegmentedDownloader(destination, file_size=8, segment_size=4, workers=2)
+            try:
+                self.assertEqual(downloader.range_map.completed_starts, ())
+                self.assertEqual(downloader.range_map.completed_bytes, 0)
+            finally:
+                downloader.writer.close()
 
     def test_segmented_downloader_retries_transient_range_failures(self):
         class TooManyRequests(Exception):

@@ -35,7 +35,8 @@ class TransferStore:
                     speed_bps INTEGER NOT NULL, average_speed_bps INTEGER NOT NULL,
                     peak_speed_bps INTEGER NOT NULL, disk_write_bps INTEGER NOT NULL, retry_count INTEGER NOT NULL,
                     rate_limit_events INTEGER NOT NULL DEFAULT 0, last_retry_delay_seconds REAL NOT NULL DEFAULT 0, last_http_status INTEGER,
-                    error TEXT, priority TEXT NOT NULL DEFAULT 'normal', queue_order INTEGER NOT NULL DEFAULT 0,
+                    error TEXT, deferred INTEGER NOT NULL DEFAULT 0,
+                    priority TEXT NOT NULL DEFAULT 'normal', queue_order INTEGER NOT NULL DEFAULT 0,
                     created_at REAL NOT NULL, started_at REAL, completed_at REAL
                 )
             """)
@@ -56,17 +57,19 @@ class TransferStore:
                 connection.execute("ALTER TABLE transfers ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'")
             if "queue_order" not in columns:
                 connection.execute("ALTER TABLE transfers ADD COLUMN queue_order INTEGER NOT NULL DEFAULT 0")
+            if "deferred" not in columns:
+                connection.execute("ALTER TABLE transfers ADD COLUMN deferred INTEGER NOT NULL DEFAULT 0")
             connection.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
 
     def upsert(self, record: TransferRecord) -> None:
         values = (record.id, record.direction, record.filename, record.local_path, record.size, record.status.value,
                   record.drive_file_id, record.drive_parent_id, record.upload_session_url, record.relative_path, record.bytes_transferred, record.speed_bps,
                   record.average_speed_bps, record.peak_speed_bps, record.disk_write_bps, record.retry_count, record.rate_limit_events, record.last_retry_delay_seconds, record.last_http_status, record.error,
-                  record.priority, record.queue_order, record.created_at, record.started_at, record.completed_at)
+                  int(record.deferred), record.priority, record.queue_order, record.created_at, record.started_at, record.completed_at)
         with self._connect() as connection:
             connection.execute("""
-                INSERT INTO transfers (id,direction,filename,local_path,size,status,drive_file_id,drive_parent_id,upload_session_url,relative_path,bytes_transferred,speed_bps,average_speed_bps,peak_speed_bps,disk_write_bps,retry_count,rate_limit_events,last_retry_delay_seconds,last_http_status,error,priority,queue_order,created_at,started_at,completed_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                INSERT INTO transfers (id,direction,filename,local_path,size,status,drive_file_id,drive_parent_id,upload_session_url,relative_path,bytes_transferred,speed_bps,average_speed_bps,peak_speed_bps,disk_write_bps,retry_count,rate_limit_events,last_retry_delay_seconds,last_http_status,error,deferred,priority,queue_order,created_at,started_at,completed_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET
                   direction=excluded.direction, filename=excluded.filename, local_path=excluded.local_path,
                   size=excluded.size, status=excluded.status, drive_file_id=excluded.drive_file_id,
@@ -75,7 +78,7 @@ class TransferStore:
                   speed_bps=excluded.speed_bps, average_speed_bps=excluded.average_speed_bps,
                   peak_speed_bps=excluded.peak_speed_bps, disk_write_bps=excluded.disk_write_bps, retry_count=excluded.retry_count,
                   rate_limit_events=excluded.rate_limit_events, last_retry_delay_seconds=excluded.last_retry_delay_seconds, last_http_status=excluded.last_http_status,
-                  error=excluded.error, priority=excluded.priority, queue_order=excluded.queue_order, created_at=excluded.created_at, started_at=excluded.started_at,
+                  error=excluded.error, deferred=excluded.deferred, priority=excluded.priority, queue_order=excluded.queue_order, created_at=excluded.created_at, started_at=excluded.started_at,
                   completed_at=excluded.completed_at
             """, values)
 
@@ -123,4 +126,5 @@ class TransferStore:
     def _record(row: sqlite3.Row) -> TransferRecord:
         data = dict(row)
         data["status"] = TransferStatus(data["status"])
+        data["deferred"] = bool(data.get("deferred", False))
         return TransferRecord(**data)

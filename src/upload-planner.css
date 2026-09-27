@@ -169,10 +169,13 @@
 .cirava-upload-footer-copy strong { color: #526581; font-size: 11px; font-weight: 700; }
 .cirava-upload-status { min-height: 0; margin: 0; color: #8a99b1; font-size: 10px; }
 .cirava-upload-status[data-error='true'] { color: #b5475a; }
-.cirava-upload-footer-action { display: grid; justify-items: end; gap: 5px; }
+.cirava-upload-footer-action { display: grid; grid-template-columns: auto auto; justify-items: end; align-items: center; gap: 8px; }
 .cirava-upload-footer button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 180px; min-height: 47px; padding: 10px 17px; border: 1px solid transparent; border-radius: 14px; color: white; background: linear-gradient(105deg, #627ce7, #4aaec0); box-shadow: 0 9px 20px rgba(75, 117, 210, .2); font-size: 12px; }
+.cirava-upload-start-icon { width: 16px; height: 16px; flex: 0 0 auto; }
 .cirava-upload-footer button:disabled { background: linear-gradient(105deg, #9cace3, #9fd8d3); box-shadow: none; opacity: .64; }
-.cirava-upload-footer-action > small { color: #8e9db4; font-size: 9px; }
+.cirava-upload-footer button.secondary { border-color: rgba(137, 163, 211, .36); color: #526683; background: rgba(255,255,255,.84); box-shadow: none; }
+.cirava-upload-footer button.secondary:disabled { color: #8794a8; background: rgba(242,245,250,.9); }
+.cirava-upload-footer-action > small { grid-column: 1 / -1; justify-self: end; color: #8e9db4; font-size: 9px; }
 .cirava-upload-footer .hold-confirm-prompt { opacity: .8; }
 .cirava-upload-footer .hold-to-confirm[data-holding='true'] { box-shadow: 0 0 0 3px rgba(97, 126, 231, .17), 0 10px 24px rgba(65, 111, 200, .23); }
 
