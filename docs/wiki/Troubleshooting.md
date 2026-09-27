@@ -1,34 +1,37 @@
 # Troubleshooting
 
-## Google sign-in does not finish
+## Google will not let me sign in
 
-- Check that the Google Drive API is enabled in the selected Cloud project.
-- Check that you created a **Desktop app** OAuth client and entered its client ID, not a web client ID.
-- If the consent screen is in testing, add the account you are signing in with to **Test users**.
-- Complete sign-in in the browser window Cirava opened. Do not paste a password or token into Cirava's client ID field.
+Check that the Google Drive API is enabled in the same Cloud project as the OAuth client. The client type must be **Desktop app**. If the OAuth audience is External and still in Testing, add the account you are using to **Test users**. Then run **Test configuration** in Cirava and retry sign-in in the browser.
 
-For setup steps, see [Google Drive setup](Google-Drive-setup).
+That configuration check only validates the client ID format and network access. It does not test the consent screen. Google also expires some test-user authorizations after seven days. The [Google sign-in setup](Google-OAuth-Setup) page explains the audience and test-user settings.
 
-## Drive is empty or an action is unavailable
+## Drive is missing folders or actions
 
-Confirm that you signed into the intended account and that the account can access the item. Shared Drive items follow the signed-in account's permissions. Some actions can be unavailable when Google reports that the account cannot download or edit an item.
+Make sure Cirava is connected to the account that can see the item. Cirava uses Google's `drive.file` scope, which does not give it blanket access to every item in Drive. A folder can exist in Drive and still be unavailable to Cirava unless it has been opened with or shared with the app. Shared Drive operations also depend on the signed-in user's permissions. Read the [scope notes](Google-OAuth-Setup#important-drivefile-scope-limitation) before changing OAuth settings.
 
 ## Upload does not start
 
-Make sure at least one local file or folder is selected, the destination is correct, and you completed the hold on **Start upload**. The optional 20 GB test upload requires test data to be enabled in Settings and consumes real Google Drive storage. If it is disabled, choose local files or enable the test in Settings.
+Confirm the planner has files or a folder selected, the destination is right, and you held **Start upload** until it confirmed. The empty-folder **Upload files** button opens the same planner; it does not start a transfer by itself.
 
-## The transfer shows 0 B/s
+The optional Cobalt test file is a real 20 GB upload to your Google Drive. It uses Drive storage. If Cirava says test data is disabled, choose local files or enable **Test data** in Settings.
 
-During startup, Cirava may be preparing a Drive session. If the transfer is paused, zero speed is expected. If the state remains on Starting transfer or Retrying, check the connection and the transfer's error details. Leave Cirava open while it retries; use pause/resume if the controls are available. If it repeatedly fails, note the error and check Diagnostics.
+## The transfer shows 0 B/s or does not move
 
-## A download will not open
+At startup, Cirava may still be creating a Drive session. A paused transfer also reports zero speed. Check the status under the progress panel: **Starting transfer**, **Retrying**, or an error gives more context. If it keeps retrying, check your connection, the account's access to the destination, and available Drive quota. Open **Diagnostics** if the issue continues.
 
-Check that the destination folder has enough free space. For a folder, Cirava creates a ZIP archive. For a Google Docs, Sheets, or Slides item, choose an export format supported for that document type.
+## A download fails
 
-## Update asks to run setup
+Check that the destination folder has free space and that the signed-in account can download the item. Folder downloads are ZIP archives. Google Docs, Sheets, and Slides need an export format; they are not ordinary binary downloads.
 
-Cirava uses the installer for a newer major version. Updates within the same major version use the standalone app update flow. For example, moving from 1.1.1 to 1.1.2 is a minor/patch update; moving from 1.x to 2.x is a major update.
+## The app asks me to run the installer for an update
 
-## Cirava is still running after the window closes
+Cirava uses the installer when the major version increases, such as 1.x to 2.x. Updates within the same major version use the in-app app update, such as 1.1.1 to 1.1.2.
 
-That is expected when the app is in the system tray. Open the notification-area menu and choose **Open Cirava** to return. Choose **Exit Cirava** when you want to stop the app and its background work.
+## The window closed, but Cirava is still running
+
+Closing the window leaves Cirava in the Windows notification area. Active transfers continue there. Open the tray icon and choose **Open Cirava** to return. Choose **Exit Cirava** when you want to stop the app and its background work.
+
+## Sign-in or transfer keeps failing
+
+Share the Cirava version, Windows version, action you were taking, and the exact error after removing account and file names. Never share OAuth codes, tokens, client secrets, `Authorization` headers, resumable-upload URLs, or an unredacted `transfers.db`. The repository's [security model](https://github.com/B1progame/Cirava/blob/main/SECURITY.md) lists sensitive data to keep out of reports.
