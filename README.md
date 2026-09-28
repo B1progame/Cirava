@@ -4,9 +4,9 @@
   <p><strong>Your files, in motion.</strong><br>
   A Windows desktop client for moving files through Google Drive.</p>
   <p>
-    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/STABLE-v1.2.1-6079ed?style=for-the-badge" alt="Latest stable release: v1.2.1"></a>
+    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/STABLE-v1.2.2-6079ed?style=for-the-badge" alt="Latest stable release: v1.2.2"></a>
     <img src="https://img.shields.io/badge/platform-Windows-2aa995?style=for-the-badge" alt="Windows desktop app">
-    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/download-v1.2.1-28344d?style=for-the-badge" alt="Download Cirava 1.2.1"></a>
+    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/download-v1.2.2-28344d?style=for-the-badge" alt="Download Cirava 1.2.2"></a>
   </p>
 </div>
 
@@ -24,15 +24,13 @@ You can close the window while work is running. Cirava stays in the Windows noti
 
 ## Download and install
 
-Get the latest build from [GitHub Releases](https://github.com/B1progame/Cirava/releases/latest). The v1.2.1 release includes:
+Get the latest build from [GitHub Releases](https://github.com/B1progame/Cirava/releases/latest). The v1.2.2 release includes:
 
-- `Cirava-Setup-1.2.1.exe` for the Windows installer.
+- `Cirava-Setup-1.2.2.exe` for the Windows installer.
 - `Cirava.exe` for the standalone app, with no installer.
 - `update-manifest.json` for checksum-verified in-app updates.
 
-This release makes Drive create actions easier to use with an in-app naming dialog, improves pause and cancel responsiveness for downloads, hardens ranged-download validation, and makes tray controls wait for a ready Windows message loop. The in-app updater now verifies the replacement again, applies it with a rollback copy, restarts Cirava, and records handoff errors in `%APPDATA%\Cirava\updates\update-apply.log`.
-
-If an older installation downloaded an update but did not restart, run the refreshed `Cirava-Setup-1.2.1.exe` from the release page once. That installs the repaired updater for future in-app updates.
+This release gives the upload planner more room for choosing a Drive destination, refreshes the 7-Zip settings, and verifies the official installer against GitHub's published SHA-256 before setup runs. The in-app updater continues to verify the replacement, apply it with a rollback copy, restart Cirava, and record handoff errors in `%APPDATA%\Cirava\updates\update-apply.log`.
 
 After launching Cirava, connect a Google account using a Desktop OAuth client. This is a one-time setup for the Cloud project and client ID. Follow the [step-by-step Google OAuth setup](GOOGLE_SETUP.md), then use the [wiki](https://github.com/B1progame/Cirava/wiki) for everyday tasks and troubleshooting.
 
@@ -93,4 +91,4 @@ Because this repository is public, GitHub's Terms of Service allow users to view
 
 ## Optional 7-Zip compression
 
-In the desktop app, open **Settings → 7-Zip archive compression** and turn it on. Cirava downloads the x64 installer from the official 7-Zip site, verifies its Windows signature, and installs it for the current Windows user. In the upload planner, choose **Compress this upload** and **Compress & preview** to see the actual archive size and savings before uploading. When the feature is enabled, downloads of Cirava-created archives are verified by an embedded marker, extracted to a new folder, and opened automatically. Your selected originals are never modified. 7-Zip is independent third-party software, not part of Cirava; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+In the desktop app, open **Settings → 7-Zip archive compression** and turn it on. Cirava fetches the x64 installer from the official 7-Zip project and checks its SHA-256 against GitHub's release metadata before running setup. It keeps 7-Zip in Cirava's app folder rather than installing it system-wide. In the upload planner, choose **Compress this upload** and **Compress & preview** to see the actual archive size and savings before uploading. When the feature is enabled, downloads of Cirava-created archives are verified by an embedded marker, extracted to a new folder, and opened automatically. Your selected originals are never modified. 7-Zip is independent third-party software, not part of Cirava; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

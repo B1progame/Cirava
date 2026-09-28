@@ -1,5 +1,6 @@
 import unittest
 import json
+import hashlib
 
 from cirava_backend.archive_compression import (
     archive_savings,
@@ -32,9 +33,39 @@ class ArchiveCompressionTests(unittest.TestCase):
         self.assertFalse(safe_archive_member("C:/Windows/file"))
 
     def test_installer_link_only_accepts_official_7zip_or_maintainer_release_hosts(self):
-        self.assertEqual(resolve_installer_url('<a href="https://github.com/ip7z/7zip/releases/download/26.03/7z2603-x64.exe">x64</a>'), "https://github.com/ip7z/7zip/releases/download/26.03/7z2603-x64.exe")
+        metadata = {
+            "tag_name": "26.03",
+            "draft": False,
+            "prerelease": False,
+            "author": {"login": "ip7z"},
+            "assets": [{
+                "name": "7z2603-x64.exe",
+                "browser_download_url": "https://github.com/ip7z/7zip/releases/download/26.03/7z2603-x64.exe",
+                "digest": f"sha256:{hashlib.sha256(b'official release').hexdigest()}",
+            }],
+        }
+        self.assertEqual(resolve_installer_url(json.dumps(metadata)), {
+            "url": "https://github.com/ip7z/7zip/releases/download/26.03/7z2603-x64.exe",
+            "sha256": hashlib.sha256(b"official release").hexdigest(),
+        })
+        metadata["assets"][0]["browser_download_url"] = "https://example.com/7z2603-x64.exe"
         with self.assertRaisesRegex(RuntimeError, "official"):
-            resolve_installer_url('<a href="https://example.com/7z2603-x64.exe">x64</a>')
+            resolve_installer_url(json.dumps(metadata))
+
+    def test_installer_release_metadata_requires_a_github_published_digest(self):
+        metadata = {
+            "tag_name": "26.03",
+            "draft": False,
+            "prerelease": False,
+            "author": {"login": "ip7z"},
+            "assets": [{
+                "name": "7z2603-x64.exe",
+                "browser_download_url": "https://github.com/ip7z/7zip/releases/download/26.03/7z2603-x64.exe",
+                "digest": None,
+            }],
+        }
+        with self.assertRaisesRegex(RuntimeError, "SHA-256"):
+            resolve_installer_url(json.dumps(metadata))
 
     def test_extraction_listing_rejects_unsafe_paths_symlinks_and_insufficient_space(self):
         listing = "Path = C:/downloads/a.cirava.zip\nType = zip\n\nPath = folder/file.txt\nSize = 100\nAttributes = A\n"

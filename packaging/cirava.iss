@@ -1,6 +1,6 @@
 #define AppName "Cirava"
 #ifndef AppVersion
-  #define AppVersion "1.0.1"
+  #define AppVersion "1.2.2"
 #endif
 #ifndef AppExeSource
   #define AppExeSource "output\Cirava.exe"
@@ -9,7 +9,7 @@
   #define AppOutputDir "output"
 #endif
 #ifndef AppOutputBaseFilename
-  #define AppOutputBaseFilename "Cirava-Setup-1.0.1"
+  #define AppOutputBaseFilename "Cirava-Setup-1.2.2"
 #endif
 #define AppPublisher "Cirava"
 #define AppExeName "Cirava.exe"

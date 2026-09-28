@@ -15,6 +15,8 @@ import { bindHoldToConfirm, clickAfterHold } from './hold-to-confirm.js';
 import { renderDriveFolderPicker } from './drive-folder-picker.js';
 import { createUploadBatch } from './upload-batch.js';
 import { createArchiveUploadFlow, formatArchiveSavings } from './archive-compression.js';
+import { renderArchiveCompressionSetting } from './archive-settings-view.js';
+import { renderUploadDestinationPanel } from './upload-destination-view.js';
 import { startUploadWithFeedback } from './upload-start.js';
 import { installTransferStartNavigation, queueNextDownload } from './transfer-start-navigation.js';
 import { installTransferToastNotifications } from './transfer-toast-notifications.js';
@@ -135,7 +137,7 @@ function ciravaArchiveCompressionSettings() {
     card = document.createElement('section');
     card.className = 'archive-compression-setting';
     card.dataset.ciravaArchiveSetting = 'true';
-    card.innerHTML = '<div><span class="mini-label">OPTIONAL FILE TOOL</span><strong>7-Zip archive compression</strong><p>Compress selected uploads to a ZIP and auto-extract Cirava archives after download.</p><small>7-Zip is independent third-party software; most 7-Zip code is GNU LGPL licensed. Enabling downloads and installs its signed x64 installer for this Windows account.</small></div><label class="archive-setting-toggle"><input type="checkbox" data-cirava-archive-enabled><span>Enable</span></label><span class="archive-setting-status" role="status" aria-live="polite" data-cirava-archive-status>Checking 7-Zip…</span>';
+    card.innerHTML = renderArchiveCompressionSetting();
     panel.append(card);
     const checkbox = card.querySelector<HTMLInputElement>('[data-cirava-archive-enabled]')!;
     const status = card.querySelector<HTMLElement>('[data-cirava-archive-status]')!;
@@ -155,7 +157,10 @@ function ciravaArchiveCompressionSettings() {
         status.textContent = result.enabled ? 'Ready · uploads can be compressed; Cirava archives auto-extract after download.' : 'Off · automatic extraction and compression are disabled.';
       } catch (error) {
         checkbox.checked = !next;
-        status.textContent = error instanceof Error ? error.message : 'Could not configure 7-Zip.';
+        const message = error instanceof Error ? error.message : '';
+        status.textContent = message.includes('valid Igor Pavlov code signature') || message.includes('published SHA-256 checksum')
+          ? 'Setup stopped for safety: the installer integrity check failed. Nothing was installed. Check your connection and try again later, or use the official 7-Zip page below.'
+          : message || 'Could not configure 7-Zip.';
       } finally { checkbox.disabled = false; }
     });
   }
@@ -607,6 +612,8 @@ function ciravaOpenDirectUploadPlanner() {
     </div>
     <footer class="cirava-upload-footer"><div class="cirava-upload-footer-copy"><span class="cirava-upload-status-dot" aria-hidden="true"></span><span><strong data-cirava-upload-footer-title>Nothing is queued yet</strong><small class="cirava-upload-status" data-cirava-upload-status aria-live="polite">Choose files and a destination to continue.</small></span></div><div class="cirava-upload-footer-action"><button type="button" class="secondary" data-cirava-upload-queue disabled>Add to queue</button><button type="button" class="primary" data-cirava-upload-start disabled><svg class="cirava-upload-start-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 15V4m0 0L8 8m4-4 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 13.5v3A2.5 2.5 0 0 0 8.5 19h7a2.5 2.5 0 0 0 2.5-2.5v-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span data-cirava-upload-start-label>Start upload</span></button><small>Hold to confirm start</small></div></footer>
   </section>`;
+  const destinationStep = backdrop.querySelector('.cirava-upload-destination-step');
+  if (destinationStep) destinationStep.replaceWith(document.createRange().createContextualFragment(renderUploadDestinationPanel()));
   document.body.appendChild(backdrop);
   const sheet = backdrop.querySelector<HTMLElement>('.cirava-direct-upload-sheet')!;
   const status = backdrop.querySelector<HTMLElement>('[data-cirava-upload-status]')!;
@@ -1306,7 +1313,7 @@ requestAnimationFrame(ciravaHomeOrbit);
 /* Keep release labels and About details aligned with the channel embedded at build time. */
 function ciravaSyncCandidateVersion() {
   const env = (import.meta as any).env || {};
-const version = env.VITE_CIRAVA_APP_VERSION || env.VITE_CIRAVA_VERSION || '1.2.1';
+const version = env.VITE_CIRAVA_APP_VERSION || env.VITE_CIRAVA_VERSION || '1.2.2';
   const presentation = getReleasePresentation(version, env.VITE_CIRAVA_APP_CHANNEL);
   document.querySelectorAll<HTMLElement>('.about-fact').forEach((fact) => {
     if (fact.querySelector('span')?.textContent?.trim() === 'Version') {
@@ -1332,7 +1339,7 @@ function ciravaUpdateScreen() {
   document.documentElement.dataset.ciravaUpdateBound = 'true';
   const env = (import.meta as any).env || {};
   const manifestUrls = getUpdateFeeds(env);
-  const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.2.1';
+  const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.2.2';
   const initialChannel = env.VITE_CIRAVA_APP_CHANNEL === 'beta' ? 'beta' : 'release';
   const channelMenuState = createUpdateChannelMenuState(initialChannel);
   let selectedChannel = channelMenuState.selected;

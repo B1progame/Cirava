@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -8,12 +10,12 @@ import shutil
 import subprocess
 import urllib.request
 import uuid
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 
 MARKER_NAME = "__CIRAVA_ARCHIVE__.json"
 MARKER_PREFIX = b"CIRAVA_ARCHIVE_V1\n"
-SEVEN_ZIP_DOWNLOAD_PAGE = "https://www.7-zip.org/download.html"
+SEVEN_ZIP_RELEASE_API = "https://api.github.com/repos/ip7z/7zip/releases/latest"
 
 
 def validate_compression_level(level: int | str) -> int:
@@ -49,17 +51,43 @@ def safe_archive_member(name: str) -> bool:
     return value not in {"", ".", ".."} and "\0" not in value and not path.is_absolute() and not re.match(r"^[A-Za-z]:", value) and ":" not in value and all(part not in {"", ".", ".."} for part in path.parts)
 
 
-def resolve_installer_url(html: str) -> str:
-    match = re.search(r'href=["\']([^"\']*7z[0-9.]+-x64\.exe)["\']', html, re.IGNORECASE)
-    if not match:
-        raise RuntimeError("The official 7-Zip x64 installer link could not be found")
-    url = urljoin(SEVEN_ZIP_DOWNLOAD_PAGE, match.group(1))
-    parsed = urlparse(url)
-    official_site = parsed.hostname in {"www.7-zip.org", "7-zip.org"}
-    official_release = parsed.hostname == "github.com" and parsed.path.startswith("/ip7z/7zip/releases/download/")
-    if parsed.scheme != "https" or not (official_site or official_release):
+def resolve_installer_url(release_json: str) -> dict[str, str]:
+    """Return the official x64 release asset and GitHub-published SHA-256."""
+    try:
+        release = json.loads(release_json)
+    except (TypeError, ValueError) as error:
+        raise RuntimeError("Could not read the official 7-Zip release metadata") from error
+    if not isinstance(release, dict):
+        raise RuntimeError("The latest release metadata is not valid JSON for an official 7-Zip release")
+    tag = release.get("tag_name", "")
+    author = release.get("author")
+    if (
+        not isinstance(tag, str)
+        or not re.fullmatch(r"\d{2}\.\d{2}", tag)
+        or release.get("draft") is not False
+        or release.get("prerelease") is not False
+        or not isinstance(author, dict)
+        or author.get("login") != "ip7z"
+    ):
+        raise RuntimeError("The latest release metadata is not a stable release from the official 7-Zip project")
+    expected_name = f"7z{tag.replace('.', '')}-x64.exe"
+    assets = release.get("assets")
+    if not isinstance(assets, list):
+        raise RuntimeError("The official 7-Zip release has no usable installer assets")
+    asset = next((item for item in assets if isinstance(item, dict) and item.get("name") == expected_name), None)
+    if not asset:
+        raise RuntimeError("The official 7-Zip x64 release asset could not be found")
+    url = asset.get("browser_download_url", "")
+    expected_path = f"/ip7z/7zip/releases/download/{tag}/{expected_name}"
+    if not isinstance(url, str):
         raise RuntimeError("The 7-Zip installer link was not hosted by the official 7-Zip project")
-    return url
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname != "github.com" or parsed.path != expected_path:
+        raise RuntimeError("The 7-Zip installer link was not hosted by the official 7-Zip project")
+    digest = asset.get("digest", "")
+    if not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest):
+        raise RuntimeError("GitHub did not provide a valid SHA-256 checksum for the 7-Zip installer")
+    return {"url": url, "sha256": digest.split(":", 1)[1].lower()}
 
 
 def validate_archive_listing(output: str, archive_path: str, free_bytes: int) -> dict[str, int]:
@@ -113,35 +141,32 @@ class SevenZip:
         self.tool_dir.mkdir(parents=True, exist_ok=True)
         installer = self.tool_dir / f"7zip-{uuid.uuid4().hex}.exe"
         try:
-            request = urllib.request.Request(SEVEN_ZIP_DOWNLOAD_PAGE, headers={"User-Agent": "Cirava/1.1"})
+            request = urllib.request.Request(SEVEN_ZIP_RELEASE_API, headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "Cirava/1.2",
+                "X-GitHub-Api-Version": "2022-11-28",
+            })
             with urllib.request.urlopen(request, timeout=20) as response:
-                html = response.read(1_000_000).decode("utf-8", errors="replace")
-            installer_url = resolve_installer_url(html)
-            request = urllib.request.Request(installer_url, headers={"User-Agent": "Cirava/1.1"})
+                release_json = response.read(1_000_000).decode("utf-8", errors="replace")
+            installer_asset = resolve_installer_url(release_json)
+            request = urllib.request.Request(installer_asset["url"], headers={"User-Agent": "Cirava/1.2"})
+            digest = hashlib.sha256()
             with urllib.request.urlopen(request, timeout=60) as response, installer.open("xb") as output:
                 total = 0
                 while chunk := response.read(256 * 1024):
                     total += len(chunk)
                     if total > 20 * 1024 * 1024:
                         raise RuntimeError("The 7-Zip installer exceeded the expected size limit")
+                    digest.update(chunk)
                     output.write(chunk)
-            self._verify_authenticode(installer)
+            if not hmac.compare_digest(digest.hexdigest(), installer_asset["sha256"]):
+                raise RuntimeError("The downloaded 7-Zip installer did not match GitHub's published SHA-256 checksum")
             result = subprocess.run([str(installer), "/S", f"/D={self.tool_dir}"], capture_output=True, timeout=180, check=False)
             if result.returncode != 0 or not self.installed():
                 raise RuntimeError("7-Zip setup did not complete successfully")
             return self.executable
         finally:
             installer.unlink(missing_ok=True)
-
-    @staticmethod
-    def _verify_authenticode(installer: Path) -> None:
-        if os.name != "nt":
-            raise RuntimeError("Cannot verify the 7-Zip Windows installer signature on this platform")
-        script = "$s=Get-AuthenticodeSignature -LiteralPath $env:CIRAVA_7ZIP_INSTALLER; if ($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch 'Igor Pavlov') { exit 7 }"
-        env = {**os.environ, "CIRAVA_7ZIP_INSTALLER": str(installer)}
-        result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], env=env, capture_output=True, timeout=30, check=False)
-        if result.returncode != 0:
-            raise RuntimeError("The downloaded 7-Zip installer did not have a valid Igor Pavlov code signature")
 
     def create_archive(self, paths: list[str], level: int = 5) -> dict:
         level = validate_compression_level(level)

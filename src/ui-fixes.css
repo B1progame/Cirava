@@ -33,13 +33,25 @@ button:focus-visible {
 .upload-archive-choice span { display: grid; gap: 5px; }
 .archive-compression-setting strong,
 .upload-archive-choice strong { color: #2f3e59; font-size: 13px; }
+.archive-setting-copy h3 { margin: 2px 0 0; color: #2f3e59; font-size: 15px; letter-spacing: -.02em; }
 .archive-compression-setting p,
 .archive-compression-setting small,
 .upload-archive-choice small { margin: 0; color: #7c8da9; font-size: 11px; line-height: 1.5; }
-.archive-setting-toggle,
+.archive-setting-copy a { width: fit-content; margin-top: 2px; color: #536fd4; font-size: 11px; font-weight: 650; text-decoration: none; }
+.archive-setting-copy a:hover { text-decoration: underline; }
+.archive-setting-toggle { display: inline-flex; align-items: center; gap: 9px; justify-self: end; color: #536583; font-size: 12px; font-weight: 650; cursor: pointer; }
+.archive-setting-toggle input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.archive-setting-switch { position: relative; width: 38px; height: 22px; border: 1px solid #bdcbe2; border-radius: 999px; background: #e4eaf4; transition: background .18s ease, border-color .18s ease; }
+.archive-setting-switch::after { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: white; box-shadow: 0 1px 4px rgba(32, 48, 75, .2); content: ''; transition: transform .18s ease; }
+.archive-setting-toggle input:checked + .archive-setting-switch { border-color: #5c78e2; background: linear-gradient(100deg, #667de8, #55b9bf); }
+.archive-setting-toggle input:checked + .archive-setting-switch::after { transform: translateX(16px); }
+.archive-setting-toggle input:focus-visible + .archive-setting-switch { outline: 3px solid var(--button-focus); outline-offset: 3px; }
+.archive-setting-toggle input:disabled + .archive-setting-switch { opacity: .55; }
+.archive-setting-feedback { display: grid; grid-column: 1 / -1; gap: 4px; padding-top: 10px; border-top: 1px solid rgba(185, 204, 239, .45); }
 .upload-archive-choice { display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .archive-setting-status,
 .upload-archive-result { grid-column: 1 / -1; color: #647795; font-size: 11px; line-height: 1.5; }
+.archive-setting-feedback > small { color: #8392aa; font-size: 10px; line-height: 1.45; }
 .upload-archive-tools { grid-template-columns: minmax(0, 1fr) auto auto; }
 .upload-archive-choice { grid-column: 1 / -1; }
 .archive-level-choice { display: grid; gap: 4px; color: #7384a1; font-size: 11px; }
@@ -50,7 +62,14 @@ button:focus-visible {
 @media (max-width: 620px) {
   .upload-archive-tools { grid-template-columns: 1fr; }
   .archive-compression-setting { grid-template-columns: 1fr; }
+  .archive-setting-toggle { justify-self: start; }
 }
+
+html[data-theme='dark'] .archive-compression-setting { border-color: rgba(126, 149, 192, .35); background: linear-gradient(125deg, rgba(39,46,57,.92), rgba(35,44,57,.92)); color: #dce5f5; }
+html[data-theme='dark'] .archive-setting-copy h3 { color: #e0e8f8; }
+html[data-theme='dark'] .archive-setting-copy a { color: #aabaff; }
+html[data-theme='dark'] .archive-setting-feedback { border-top-color: rgba(126,149,192,.25); }
+html[data-theme='dark'] .archive-setting-feedback > small { color: #9aa9c1; }
 
 .primary,
 .secondary,
