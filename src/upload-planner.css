@@ -116,6 +116,7 @@
   cursor: pointer;
   transition: border-color .18s ease, background .18s ease, transform .18s ease;
 }
+.cirava-upload-test-choice[hidden], .planner-file[hidden], .planner-picker-actions [hidden] { display: none !important; }
 .cirava-upload-test-choice:hover { transform: translateY(-1px); border-color: rgba(99, 127, 223, .42); background: rgba(255,255,255,.92); }
 .cirava-upload-test-choice.is-selected { border-color: rgba(92, 122, 226, .52); background: rgba(233, 239, 255, .82); }
 .cirava-upload-test-mark { display: grid; flex: 0 0 31px; width: 31px; height: 31px; place-items: center; border-radius: 10px; background: rgba(100, 128, 229, .12); color: #637fdf; font-size: 17px; }

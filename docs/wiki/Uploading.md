@@ -12,7 +12,9 @@ The **Upload files** action in an empty Drive folder opens the same planner. It 
 
 ## Compress before uploading (optional)
 
-To send an archive instead of the original files, first enable **Settings → 7-Zip archive compression**. Cirava fetches the x64 installer from the official 7-Zip project and checks its SHA-256 against GitHub's release metadata before running setup. It keeps 7-Zip in Cirava's app folder rather than installing it system-wide. In the upload planner, choose **Compress this upload**, then pick one of the clearly labeled levels: **Fastest**, **Fast**, **Balanced**, **High**, or **Maximum**. Higher levels can take longer and may not make already-compressed files smaller. Prepare the archive to see its measured size and savings; nothing is uploaded until you confirm the prepared item. Source files are left untouched.
+To send an archive instead of the original files, first enable **Settings → 7-Zip archive compression**. The setting is in General settings; open **About the 7-Zip component** there for details about the separate software, its app-folder install location, and verification. Cirava fetches the x64 installer from the official 7-Zip project and checks its SHA-256 against GitHub's release metadata before running setup. It does not install 7-Zip system-wide.
+
+After choosing local files or a folder in the upload planner, turn on **Compress this upload** to reveal the compression levels and **Compress & preview**. Choose **Fastest**, **Fast**, **Balanced**, **High**, or **Maximum**. Higher levels can take longer and may not make already-compressed files smaller. The preview reports the measured archive size and savings; nothing is uploaded until you confirm the prepared item. Source files are left untouched. Compression is unavailable for the Cobalt test payload and is hidden until 7-Zip is enabled and local items are selected.
 
 ## Follow the upload
 

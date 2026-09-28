@@ -22,6 +22,7 @@ import { installTransferStartNavigation, queueNextDownload } from './transfer-st
 import { installTransferToastNotifications } from './transfer-toast-notifications.js';
 import { scheduleTransientUploadNoticeDismissal } from './transient-upload-notice.js';
 import { getUploadSelectionView } from './upload-planner-view.js';
+import { isTestDataEnabled } from './test-data-setting.js';
 import { isDriveUploadEntrypoint } from './upload-entrypoint.js';
 import { bindTransferJourney, renderTransferJourney } from './transfer-journey.js';
 import { enhanceDriveMultiSelect, toggleDriveRowSelection } from './drive-multiselect.js';
@@ -130,15 +131,17 @@ function ciravaNetworkControls() {
 }
 
 function ciravaArchiveCompressionSettings() {
-  const panel = Array.from(document.querySelectorAll<HTMLElement>('.settings-panel')).find((node) => node.textContent?.includes('Bandwidth policy'));
+  const panel = Array.from(document.querySelectorAll<HTMLElement>('.settings-panel')).find((node) => node.textContent?.includes('Enable test data'));
   if (!panel) return;
   let card = panel.querySelector<HTMLElement>('[data-cirava-archive-setting]');
   if (!card) {
     card = document.createElement('section');
-    card.className = 'archive-compression-setting';
+    card.className = 'setting-group archive-compression-setting';
     card.dataset.ciravaArchiveSetting = 'true';
     card.innerHTML = renderArchiveCompressionSetting();
-    panel.append(card);
+    const testDataGroup = Array.from(panel.querySelectorAll<HTMLElement>('.setting-group')).find((group) => group.textContent?.includes('Enable test data'));
+    if (testDataGroup) testDataGroup.after(card);
+    else panel.append(card);
     const checkbox = card.querySelector<HTMLInputElement>('[data-cirava-archive-enabled]')!;
     const status = card.querySelector<HTMLElement>('[data-cirava-archive-status]')!;
     const api = () => (window as any).pywebview?.api;
@@ -392,6 +395,7 @@ function ciravaUploadPlannerControls() {
   // desktop window behave like the browser preview and show a false upload
   // error.
   const getApi = () => (window as any).pywebview?.api;
+  const testDataEnabled = isTestDataEnabled(window.localStorage);
   const list = planner.querySelector<HTMLElement>('.planner-list');
   const destination = planner.querySelector<HTMLElement>('.destination');
   const summary = planner.querySelector<HTMLElement>('.planner-summary');
@@ -406,8 +410,10 @@ function ciravaUploadPlannerControls() {
   const previewCopy = summary.querySelector<HTMLElement>('p');
   if (sampleTitle) sampleTitle.textContent = 'Cobalt launch kit · sample';
   if (sampleDetails) sampleDetails.textContent = 'Preview only · no local file';
-  if (previewCopy) previewCopy.textContent = 'This Cobalt card is a visual sample, not a file on your computer. Choose local files, or select the clearly labeled 20 GB Drive test upload below.';
-  if (cobaltCard) { cobaltCard.setAttribute('role', 'button'); cobaltCard.setAttribute('tabindex', '0'); cobaltCard.setAttribute('aria-label', 'Select the Cobalt 20 GB test upload'); }
+  if (previewCopy) previewCopy.textContent = testDataEnabled
+    ? 'This Cobalt card is a visual sample, not a file on your computer. Choose local files, or select the clearly labeled 20 GB Drive test upload below.'
+    : 'This is a visual sample, not a file on your computer. Choose local files or a folder to upload.';
+  if (cobaltCard) { cobaltCard.hidden = !testDataEnabled; cobaltCard.setAttribute('role', 'button'); cobaltCard.setAttribute('tabindex', '0'); cobaltCard.setAttribute('aria-label', 'Select the Cobalt 20 GB test upload'); }
   const destinationPicker = document.createElement('div');
   destinationPicker.className = 'cirava-upload-folders planner-destination-picker';
   destinationPicker.hidden = true;
@@ -423,6 +429,11 @@ function ciravaUploadPlannerControls() {
   const startButton = controls.querySelector<HTMLButtonElement>('[data-cirava-start-upload]')!;
   const queueButton = controls.querySelector<HTMLButtonElement>('[data-cirava-queue-upload]')!;
   const testButton = controls.querySelector<HTMLButtonElement>('[data-cirava-pick-test]')!;
+  testButton.hidden = !testDataEnabled;
+  if (!testDataEnabled) {
+    const pickerStatus = controls.querySelector<HTMLElement>('.planner-picker-status');
+    if (pickerStatus) pickerStatus.textContent = 'Choose local files or a folder. Enable Test data in Settings to show the Cobalt test-file option.';
+  }
   let selectedPaths: string[] = [];
   const archiveApi = {
     prepare_compressed_upload: (paths: string[], level: number) => getApi()?.prepare_compressed_upload?.(paths, level),
@@ -431,17 +442,29 @@ function ciravaUploadPlannerControls() {
   const archiveTools = document.createElement('section');
   archiveTools.className = 'upload-archive-tools';
   archiveTools.hidden = true;
-  archiveTools.innerHTML = '<label class="upload-archive-choice"><input type="checkbox" data-cirava-compress-choice><span><strong>Compress this upload</strong><small>Create a ZIP with 7-Zip; preview its real size before uploading.</small></span></label><div class="archive-level-choice"><span>Compression level</span><div class="archive-level-options" role="group" aria-label="Compression level" data-cirava-compression-level data-value="5"><button type="button" data-compression-level="1" aria-pressed="false"><strong>1</strong><small>Fastest</small></button><button type="button" data-compression-level="3" aria-pressed="false"><strong>3</strong><small>Fast</small></button><button type="button" data-compression-level="5" aria-pressed="true"><strong>5</strong><small>Balanced</small></button><button type="button" data-compression-level="7" aria-pressed="false"><strong>7</strong><small>High</small></button><button type="button" data-compression-level="9" aria-pressed="false"><strong>9</strong><small>Maximum</small></button></div></div><button type="button" class="secondary" data-cirava-compression-preview>Compress &amp; preview</button><span class="upload-archive-result" role="status" aria-live="polite" data-cirava-compression-result>Choose files to preview the archive size.</span>';
+  archiveTools.innerHTML = '<label class="upload-archive-choice"><input type="checkbox" data-cirava-compress-choice><span><strong>Compress this upload</strong><small>Use 7-Zip to create a ZIP, then compare its real size before uploading.</small></span></label><div class="archive-level-choice" hidden><span>Compression level</span><div class="archive-level-options" role="group" aria-label="Compression level" data-cirava-compression-level data-value="5"><button type="button" data-compression-level="1" aria-pressed="false"><strong>1</strong><small>Fastest</small></button><button type="button" data-compression-level="3" aria-pressed="false"><strong>3</strong><small>Fast</small></button><button type="button" data-compression-level="5" aria-pressed="true"><strong>5</strong><small>Balanced</small></button><button type="button" data-compression-level="7" aria-pressed="false"><strong>7</strong><small>High</small></button><button type="button" data-compression-level="9" aria-pressed="false"><strong>9</strong><small>Maximum</small></button></div></div><button type="button" class="secondary" data-cirava-compression-preview hidden>Compress &amp; preview</button><span class="upload-archive-result" role="status" aria-live="polite" data-cirava-compression-result hidden></span>';
   controls.querySelector('.cirava-upload-queue-actions')?.before(archiveTools);
   installArchiveLevelPicker(archiveTools);
   const compressChoice = archiveTools.querySelector<HTMLInputElement>('[data-cirava-compress-choice]')!;
+  const archiveLevelChoice = archiveTools.querySelector<HTMLElement>('.archive-level-choice')!;
+  const archivePreviewButton = archiveTools.querySelector<HTMLButtonElement>('[data-cirava-compression-preview]')!;
   const archiveResult = archiveTools.querySelector<HTMLElement>('[data-cirava-compression-result]')!;
+  let archiveAvailable = false;
+  const refreshArchiveVisibility = () => {
+    const show = selectedPaths.length > 0 && !testUpload && archiveAvailable;
+    archiveTools.hidden = !show;
+    archiveTools.dataset.hasFiles = String(show);
+    compressChoice.disabled = !show;
+    archiveLevelChoice.hidden = !show || !compressChoice.checked;
+    archivePreviewButton.hidden = !show || !compressChoice.checked;
+    archiveResult.hidden = !show || !compressChoice.checked;
+  };
   const refreshArchiveAvailability = async () => {
-    try { archiveTools.hidden = !(await getApi()?.get_archive_compression_status?.())?.enabled; }
-    catch { archiveTools.hidden = true; }
+    try { archiveAvailable = Boolean((await getApi()?.get_archive_compression_status?.())?.enabled); refreshArchiveVisibility(); }
+    catch { archiveAvailable = false; refreshArchiveVisibility(); }
   };
   void refreshArchiveAvailability();
-  archiveTools.querySelector<HTMLButtonElement>('[data-cirava-compression-preview]')?.addEventListener('click', async (event) => {
+  archivePreviewButton.addEventListener('click', async (event) => {
     const button = event.currentTarget as HTMLButtonElement;
     if (!selectedPaths.length) { archiveResult.textContent = 'Choose local files or a folder first.'; return; }
     button.disabled = true; button.textContent = 'Compressing for an exact preview…'; archiveResult.textContent = 'Creating the archive locally. The original files stay unchanged.';
@@ -455,6 +478,7 @@ function ciravaUploadPlannerControls() {
     finally { button.disabled = false; button.textContent = 'Compress & preview'; }
   });
   compressChoice.addEventListener('change', () => {
+    refreshArchiveVisibility();
     if (!compressChoice.checked) { archiveFlow.clear(); startButton.textContent = 'Hold to upload'; archiveResult.textContent = 'Compression is off for this upload.'; }
     else if (!archiveFlow.getPrepared(selectedPaths)) { archiveResult.textContent = 'Preview and compress the selection before starting the upload.'; }
   });
@@ -476,8 +500,10 @@ function ciravaUploadPlannerControls() {
       setStatus('Reading the selection…');
       const summaryResult = await api.summarize_local_paths(paths);
       selectedPaths = paths;
+      refreshArchiveVisibility();
       archiveFlow.clear();
       compressChoice.checked = false;
+      refreshArchiveVisibility();
       archiveResult.textContent = 'Choose files to preview the archive size.';
       testUpload = false;
       cobaltCard?.classList.remove('is-test-selection');
@@ -499,6 +525,7 @@ function ciravaUploadPlannerControls() {
     if (typeof getApi()?.create_test_upload !== 'function') { setStatus('The 20 GB test upload is only available in the Cirava desktop app.', true); return; }
     selectedPaths = [];
     testUpload = true;
+    refreshArchiveVisibility();
     cobaltCard?.classList.add('is-test-selection');
     cobaltCard?.setAttribute('aria-pressed', 'true');
     if (sampleTitle) sampleTitle.textContent = 'Cobalt launch kit · 20 GB test payload';
@@ -634,19 +661,40 @@ function ciravaOpenDirectUploadPlanner() {
   const start = backdrop.querySelector<HTMLButtonElement>('[data-cirava-upload-start]')!;
   const queueUpload = backdrop.querySelector<HTMLButtonElement>('[data-cirava-upload-queue]')!;
   const testChoice = backdrop.querySelector<HTMLButtonElement>('[data-cirava-upload-test]')!;
+  const testDataEnabled = isTestDataEnabled(window.localStorage);
+  testChoice.hidden = !testDataEnabled;
+  if (!testDataEnabled && state.testUpload) {
+    state.testUpload = false;
+    state.paths = [];
+    state.summary = undefined;
+  }
   const archiveFlow = createArchiveUploadFlow({ prepare_compressed_upload: (paths: string[], level: number) => getApi()?.prepare_compressed_upload?.(paths, level) });
   const archiveTools = document.createElement('section');
   archiveTools.className = 'upload-archive-tools';
-  archiveTools.innerHTML = '<label class="upload-archive-choice"><input type="checkbox" data-cirava-compress-choice><span><strong>Compress this upload</strong><small>Build a ZIP with 7-Zip; preview the exact size and savings.</small></span></label><div class="archive-level-choice"><span>Compression level</span><div class="archive-level-options" role="group" aria-label="Compression level" data-cirava-compression-level data-value="5"><button type="button" data-compression-level="1" aria-pressed="false"><strong>1</strong><small>Fastest</small></button><button type="button" data-compression-level="3" aria-pressed="false"><strong>3</strong><small>Fast</small></button><button type="button" data-compression-level="5" aria-pressed="true"><strong>5</strong><small>Balanced</small></button><button type="button" data-compression-level="7" aria-pressed="false"><strong>7</strong><small>High</small></button><button type="button" data-compression-level="9" aria-pressed="false"><strong>9</strong><small>Maximum</small></button></div></div><button type="button" class="secondary" data-cirava-compression-preview>Compress &amp; preview</button><span class="upload-archive-result" role="status" aria-live="polite" data-cirava-compression-result>Compression is optional. Enable 7-Zip in Settings first.</span>';
+  archiveTools.hidden = true;
+  archiveTools.innerHTML = '<label class="upload-archive-choice"><input type="checkbox" data-cirava-compress-choice><span><strong>Compress this upload</strong><small>Use 7-Zip to create a ZIP, then compare its real size before uploading.</small></span></label><div class="archive-level-choice" hidden><span>Compression level</span><div class="archive-level-options" role="group" aria-label="Compression level" data-cirava-compression-level data-value="5"><button type="button" data-compression-level="1" aria-pressed="false"><strong>1</strong><small>Fastest</small></button><button type="button" data-compression-level="3" aria-pressed="false"><strong>3</strong><small>Fast</small></button><button type="button" data-compression-level="5" aria-pressed="true"><strong>5</strong><small>Balanced</small></button><button type="button" data-compression-level="7" aria-pressed="false"><strong>7</strong><small>High</small></button><button type="button" data-compression-level="9" aria-pressed="false"><strong>9</strong><small>Maximum</small></button></div></div><button type="button" class="secondary" data-cirava-compression-preview hidden>Compress &amp; preview</button><span class="upload-archive-result" role="status" aria-live="polite" data-cirava-compression-result hidden></span>';
   backdrop.querySelector('.cirava-upload-local-step')?.append(archiveTools);
   installArchiveLevelPicker(archiveTools);
   const compressChoice = archiveTools.querySelector<HTMLInputElement>('[data-cirava-compress-choice]')!;
+  const archiveLevelChoice = archiveTools.querySelector<HTMLElement>('.archive-level-choice')!;
+  const archivePreviewButton = archiveTools.querySelector<HTMLButtonElement>('[data-cirava-compression-preview]')!;
   const archiveResult = archiveTools.querySelector<HTMLElement>('[data-cirava-compression-result]')!;
+  let archiveAvailable = false;
   void getApi()?.get_archive_compression_status?.().then((result: any) => {
-    archiveTools.hidden = !result.enabled;
+    archiveAvailable = Boolean(result.enabled);
     if (!result.enabled) archiveResult.textContent = 'Enable 7-Zip archive tools in Settings to use this option.';
-  }).catch(() => { archiveTools.hidden = true; });
-  archiveTools.querySelector<HTMLButtonElement>('[data-cirava-compression-preview]')!.addEventListener('click', async (event) => {
+    refreshArchiveControls();
+  }).catch(() => { archiveAvailable = false; refreshArchiveControls(); });
+  const refreshArchiveControls = () => {
+    const show = Boolean(state.paths.length && !state.testUpload && archiveAvailable);
+    archiveTools.hidden = !show;
+    archiveTools.dataset.hasFiles = String(show);
+    compressChoice.disabled = !show;
+    archiveLevelChoice.hidden = !show || !compressChoice.checked;
+    archivePreviewButton.hidden = !show || !compressChoice.checked;
+    archiveResult.hidden = !show || !compressChoice.checked;
+  };
+  archivePreviewButton.addEventListener('click', async (event) => {
     const button = event.currentTarget as HTMLButtonElement;
     if (!state.paths.length) { archiveResult.textContent = 'Choose files or a folder first.'; return; }
     button.disabled = true; button.textContent = 'Compressing…'; archiveResult.textContent = 'Creating the archive locally; original files are not changed.';
@@ -660,6 +708,7 @@ function ciravaOpenDirectUploadPlanner() {
     finally { button.disabled = false; button.textContent = 'Compress & preview'; }
   });
   compressChoice.addEventListener('change', () => {
+    refreshArchiveControls();
     if (!compressChoice.checked) { archiveFlow.clear(); setStartLabel('Start upload'); archiveResult.textContent = 'Compression is off for this upload.'; }
     else if (!archiveFlow.getPrepared(state.paths)) archiveResult.textContent = 'Preview and compress these files before uploading.';
   });
@@ -701,6 +750,7 @@ function ciravaOpenDirectUploadPlanner() {
     state.summary = summary;
     state.testUpload = false;
     renderSelection();
+    refreshArchiveControls();
     setStartLabel('Start upload');
     start.disabled = !state.paths.length || !getApi()?.create_upload_batch;
     queueUpload.disabled = start.disabled;
@@ -814,7 +864,7 @@ function ciravaTestUploadControl() {
   const page = document.querySelector<HTMLElement>('.home-page');
   const grid = page?.querySelector<HTMLElement>('.home-intent-grid');
   if (!page || !grid) return;
-  const enabled = window.localStorage.getItem('cirava.testMode') === 'true';
+  const enabled = isTestDataEnabled(window.localStorage);
   const existing = grid.querySelector<HTMLElement>('[data-cirava-test-upload]');
   if (!enabled) { existing?.remove(); return; }
   if (existing) return;
@@ -1327,7 +1377,7 @@ requestAnimationFrame(ciravaHomeOrbit);
 /* Keep release labels and About details aligned with the channel embedded at build time. */
 function ciravaSyncCandidateVersion() {
   const env = (import.meta as any).env || {};
-const version = env.VITE_CIRAVA_APP_VERSION || env.VITE_CIRAVA_VERSION || '1.2.3';
+const version = env.VITE_CIRAVA_APP_VERSION || env.VITE_CIRAVA_VERSION || '1.2.4';
   const presentation = getReleasePresentation(version, env.VITE_CIRAVA_APP_CHANNEL);
   document.querySelectorAll<HTMLElement>('.about-fact').forEach((fact) => {
     if (fact.querySelector('span')?.textContent?.trim() === 'Version') {
@@ -1353,7 +1403,7 @@ function ciravaUpdateScreen() {
   document.documentElement.dataset.ciravaUpdateBound = 'true';
   const env = (import.meta as any).env || {};
   const manifestUrls = getUpdateFeeds(env);
-  const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.2.3';
+  const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.2.4';
   const initialChannel = env.VITE_CIRAVA_APP_CHANNEL === 'beta' ? 'beta' : 'release';
   const channelMenuState = createUpdateChannelMenuState(initialChannel);
   let selectedChannel = channelMenuState.selected;

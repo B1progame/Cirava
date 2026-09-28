@@ -4,9 +4,9 @@
 
 Open the [latest release](https://github.com/B1progame/Cirava/releases/latest). Choose `Cirava-Setup-<version>.exe` for the Windows installer, or `Cirava.exe` for the standalone app. Start Cirava from the Windows profile you plan to use; its saved Google credentials are protected for that Windows user.
 
-The current stable release is **Cirava 1.2.3**. The installer is optional; the standalone app is also available on the release page.
+The current stable release is **Cirava 1.2.4**. The installer is optional; the standalone app is also available on the release page.
 
-Cirava 1.2.3 fixes the in-app updater's startup handoff and improves compression-level selection in the upload planner. For the full list of changes, open the [release notes](https://github.com/B1progame/Cirava/releases/tag/v1.2.3).
+Cirava 1.2.4 makes the optional 7-Zip controls clearer in Settings and the upload planner. For the full list of changes, open the [release notes](https://github.com/B1progame/Cirava/releases/tag/v1.2.4).
 
 ## Connect Drive
 
