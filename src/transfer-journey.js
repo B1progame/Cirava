@@ -1,4 +1,14 @@
 const ROUTE_PATH = 'M 122 100 C 220 27 317 27 450 100 C 583 173 680 173 778 100';
+const PACKET_GLYPHS = Object.freeze({
+  folder: '<path class="journey-file-glyph folder" d="M-7-4h5l2 2h5v9H-7z"/><path class="journey-file-fold" d="M-7-1H5"/>',
+  image: '<rect class="journey-file-glyph image" x="-7" y="-6" width="14" height="12" rx="2"/><circle class="journey-image-sun" cx="3" cy="-3" r="1.4"/><path class="journey-image-hill" d="m-5 4 4-4 2 2 2-2 3 4"/>',
+  document: '<path class="journey-file-glyph document" d="M-5-7h7l4 4v10H-5z"/><path class="journey-document-fold" d="M2-7v4h4M-2 1h6M-2 4h6"/>',
+  spreadsheet: '<rect class="journey-file-glyph spreadsheet" x="-6.5" y="-7" width="13" height="14" rx="1.5"/><path class="journey-spreadsheet-grid" d="M-6-2h12M-6 2h12M-2-6v12M2-6v12"/>',
+  video: '<rect class="journey-file-glyph video" x="-7" y="-5.5" width="14" height="11" rx="2"/><path class="journey-video-play" d="m-1.5-3 4.5 3-4.5 3z"/>',
+  archive: '<path class="journey-file-glyph archive" d="M-7-5h14v3H-7zM-5-2h10v9H-5z"/><path class="journey-archive-zip" d="M0-2v2m0 1v1m0 1v1m-1 1h2"/>',
+  audio: '<path class="journey-file-glyph audio" d="M1-6v10.2a2.5 2.5 0 1 1-1.5-2.3V-4l8-2v9.2A2.5 2.5 0 1 1 6 1V-5z"/>',
+});
+const PACKET_KINDS = Object.freeze(Object.keys(PACKET_GLYPHS));
 const QUEUED_STATUSES = new Set(['queued', 'preparing', 'transferring', 'paused', 'waiting-for-network', 'rate-limited', 'verifying']);
 const CANCELLABLE_TRANSFER_STATUSES = new Set(['queued', 'preparing', 'transferring', 'paused', 'waiting-for-network', 'rate-limited']);
 const PAUSABLE_TRANSFER_STATUSES = new Set(['queued', 'preparing', 'transferring', 'waiting-for-network', 'rate-limited']);
@@ -56,6 +66,24 @@ export function getTransferJourneyFrame(progress) {
 export function getTransferJourneyPathProgress(progress, direction) {
   const t = Math.max(0, Math.min(1, Number(progress) || 0));
   return direction === 'download' ? 1 - t : t;
+}
+
+export function createTransferJourneyPackets(random = Math.random, activity = { upload: false, download: false }) {
+  const sample = () => {
+    const value = Number(random());
+    return Math.max(0, Math.min(0.999999999, Number.isFinite(value) ? value : 0.5));
+  };
+  const availableKinds = [...PACKET_KINDS];
+  const kinds = Array.from({ length: 3 }, () => availableKinds.splice(Math.floor(sample() * availableKinds.length), 1)[0]);
+  const directions = activity.upload && activity.download
+    ? (sample() < 0.5 ? ['upload', 'upload', 'download'] : ['download', 'download', 'upload'])
+    : Array(3).fill(activity.download ? 'download' : 'upload');
+  return kinds.map((kind, index) => ({
+    kind,
+    direction: directions[index],
+    phase: sample(),
+    speed: 0.88 + sample() * 0.24,
+  }));
 }
 
 export function getTransferJourneySummary(transfers, nowSeconds = Date.now() / 1000) {
@@ -173,22 +201,13 @@ export function formatTransferJourneyElapsed(seconds) {
   return `${hours} hr ${minutes} min ${remainingSeconds} sec`;
 }
 
-function renderPacket(direction, kind, phase) {
-  let glyph;
-  if (kind === 'folder') {
-    glyph = '<path class="journey-file-glyph folder" d="M-7-4h5l2 2h5v9H-7z"/><path class="journey-file-fold" d="M-7-1H5"/>';
-  } else if (kind === 'image') {
-    glyph = '<rect class="journey-file-glyph image" x="-7" y="-6" width="14" height="12" rx="2"/><circle class="journey-image-sun" cx="3" cy="-3" r="1.4"/><path class="journey-image-hill" d="m-5 4 4-4 2 2 2-2 3 4"/>';
-  } else {
-    glyph = '<path class="journey-file-glyph document" d="M-5-7h7l4 4v10H-5z"/><path class="journey-document-fold" d="M2-7v4h4M-2 1h6M-2 4h6"/>';
-  }
-  return `<g class="transfer-file-packet ${direction}" data-file-kind="${kind}" data-phase="${phase}" aria-hidden="true" opacity="0"><circle class="journey-file-tile" r="11"/>${glyph}</g>`;
+function renderPacket(direction, kind, phase, speed = 1) {
+  return `<g class="transfer-file-packet${direction === 'idle' ? '' : ` ${direction}`}" data-direction="${direction}" data-file-kind="${kind}" data-phase="${phase}" data-speed="${speed}" aria-hidden="true" opacity="0"><circle class="journey-file-tile" r="11"/>${PACKET_GLYPHS[kind]}</g>`;
 }
 
 export function renderTransferJourney() {
   const packets = ['folder', 'image', 'document'];
-  const uploadPackets = packets.map((kind, index) => renderPacket('upload', kind, index / packets.length)).join('');
-  const downloadPackets = packets.map((kind, index) => renderPacket('download', kind, index / packets.length)).join('');
+  const routePackets = packets.map((kind, index) => renderPacket('idle', kind, index / packets.length)).join('');
   return `<section class="transfer-journey" data-upload-active="false" data-download-active="false" aria-label="Transfer route: this device, secure cloud, Google Drive">
     <div class="transfer-journey-copy">
       <div><span class="transfer-journey-kicker">The route your files take</span><h3>From here to safely there.</h3></div>
@@ -205,7 +224,7 @@ export function renderTransferJourney() {
       </defs>
       <path class="transfer-route-glow" d="${ROUTE_PATH}"/>
       <path class="transfer-route-line" d="${ROUTE_PATH}"/>
-      ${uploadPackets}${downloadPackets}
+      ${routePackets}
 
       <g class="transfer-journey-node device-node" filter="url(#transfer-soft-shadow)">
         <circle class="journey-node-halo" cx="122" cy="100" r="39"/>
@@ -284,14 +303,30 @@ export function bindTransferJourney(section, listTransfers, cancelTransfer, paus
   try { pathLength = path.getTotalLength(); } catch { /* Keep the illustration still if SVG geometry is unavailable. */ }
 
   const hasActivity = (state) => state.upload || state.download;
+  const randomizePackets = (state) => {
+    const variations = createTransferJourneyPackets(Math.random, state);
+    packets.forEach((packet, index) => {
+      const variation = variations[index];
+      packet.classList.remove('upload', 'download');
+      packet.classList.add(variation.direction);
+      packet.dataset.direction = variation.direction;
+      packet.dataset.fileKind = variation.kind;
+      packet.dataset.phase = String(variation.phase);
+      packet.dataset.speed = String(variation.speed);
+      for (const child of Array.from(packet.children)) {
+        if (!child.classList.contains('journey-file-tile')) child.remove();
+      }
+      packet.insertAdjacentHTML('beforeend', PACKET_GLYPHS[variation.kind]);
+    });
+  };
   const renderFrame = (now) => {
     frameId = 0;
     if (disposed || !section.isConnected || !hasActivity(activity) || prefersReducedMotion || !pathLength) return;
     const elapsed = (now - startedAt) / duration;
     for (const packet of packets) {
-      const direction = packet.classList.contains('upload') ? 'upload' : 'download';
+      const direction = packet.dataset.direction;
       if (!activity[direction]) { packet.setAttribute('opacity', '0'); continue; }
-      const progress = (elapsed + Number(packet.dataset.phase || 0)) % 1;
+      const progress = (elapsed * Number(packet.dataset.speed || 1) + Number(packet.dataset.phase || 0)) % 1;
       const pathProgress = getTransferJourneyPathProgress(progress, direction);
       const point = path.getPointAtLength(pathLength * pathProgress);
       const frame = getTransferJourneyFrame(progress);
@@ -303,11 +338,13 @@ export function bindTransferJourney(section, listTransfers, cancelTransfer, paus
 
   const setActivity = (next) => {
     const changed = next.upload !== activity.upload || next.download !== activity.download;
-    const wasIdle = !hasActivity(activity);
     activity = next;
     section.dataset.uploadActive = String(next.upload);
     section.dataset.downloadActive = String(next.download);
-    if (changed && wasIdle && hasActivity(next)) startedAt = performance.now();
+    if (changed && hasActivity(next)) {
+      startedAt = performance.now();
+      randomizePackets(next);
+    }
     if (hasActivity(next) && !prefersReducedMotion && pathLength && !frameId) {
       frameId = window.requestAnimationFrame(renderFrame);
     } else if (!hasActivity(next) && frameId) {

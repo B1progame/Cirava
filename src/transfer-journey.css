@@ -70,6 +70,13 @@
 .journey-image-hill { fill: none; stroke: #4dbbb2; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
 .journey-file-glyph.document { fill: #f2edff; stroke: #907be0; stroke-width: 1.1; stroke-linejoin: round; }
 .journey-document-fold { fill: none; stroke: #907be0; stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; }
+.journey-file-glyph.spreadsheet { fill: #e8f7ed; stroke: #55a978; stroke-width: 1.1; }
+.journey-spreadsheet-grid { fill: none; stroke: #55a978; stroke-width: .85; stroke-linecap: round; }
+.journey-file-glyph.video { fill: #fff1e8; stroke: #e89563; stroke-width: 1.1; }
+.journey-video-play { fill: #e89563; stroke: none; stroke-linejoin: round; }
+.journey-file-glyph.archive { fill: #f2edff; stroke: #907be0; stroke-width: 1.1; stroke-linejoin: round; }
+.journey-archive-zip { fill: none; stroke: #907be0; stroke-width: .9; stroke-linecap: round; }
+.journey-file-glyph.audio { fill: #e9f1ff; stroke: #6485d8; stroke-width: 1.1; stroke-linecap: round; stroke-linejoin: round; }
 .transfer-journey-legend { display: flex; justify-content: center; gap: 16px; margin-top: -2px; color: #8c99ae; font-size: 9px; }
 .transfer-journey-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .transfer-journey-legend i { width: 6px; height: 6px; border-radius: 50%; background: #6987f0; }

@@ -9,7 +9,7 @@
 - [Transfers and tray](Transfers)
 - [Troubleshooting](Troubleshooting)
 - [Privacy and security](Privacy-and-security)
-- [Release notes: 1.2.4](v1.2.4)
+- [Release notes: 1.2.5](v1.2.5)
 
 ### Technical notes
 

@@ -4,9 +4,9 @@
   <p><strong>Your files, in motion.</strong><br>
   A Windows desktop client for moving files through Google Drive.</p>
   <p>
-    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/STABLE-v1.2.4-6079ed?style=for-the-badge" alt="Latest stable release: v1.2.4"></a>
+    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/STABLE-v1.2.5-6079ed?style=for-the-badge" alt="Latest stable release: v1.2.5"></a>
     <img src="https://img.shields.io/badge/platform-Windows-2aa995?style=for-the-badge" alt="Windows desktop app">
-    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/download-v1.2.4-28344d?style=for-the-badge" alt="Download Cirava 1.2.4"></a>
+    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/download-v1.2.5-28344d?style=for-the-badge" alt="Download Cirava 1.2.5"></a>
   </p>
 </div>
 
@@ -24,13 +24,13 @@ You can close the window while work is running. Cirava stays in the Windows noti
 
 ## Download and install
 
-Get the latest build from [GitHub Releases](https://github.com/B1progame/Cirava/releases/latest). The v1.2.4 release includes:
+Get the latest build from [GitHub Releases](https://github.com/B1progame/Cirava/releases/latest). The v1.2.5 release includes:
 
-- `Cirava-Setup-1.2.4.exe` for the Windows installer.
+- `Cirava-Setup-1.2.5.exe` for the Windows installer.
 - `Cirava.exe` for the standalone app, with no installer.
 - `update-manifest.json` for checksum-verified in-app updates.
 
-This release refines the optional 7-Zip experience: the setting now fits into General settings, its software and install details are explained separately, and upload compression controls appear only after 7-Zip is enabled, local files are selected, and compression is chosen. The Cobalt test-file option is shown only when **Test data** is enabled. Google sign-in data remains in your Windows profile during in-app updates.
+The transfer route now has seven file-icon styles. It randomly varies the three moving packets' styles, direction, spacing, and pace, while keeping the display capped at three icons even when uploads and downloads run together. This release also carries forward the clearer optional 7-Zip controls and keeps Google sign-in data in your Windows profile during in-app updates.
 
 After launching Cirava, connect a Google account using a Desktop OAuth client. This is a one-time setup for the Cloud project and client ID. Follow the [step-by-step Google OAuth setup](GOOGLE_SETUP.md), then use the [wiki](https://github.com/B1progame/Cirava/wiki) for everyday tasks and troubleshooting.
 

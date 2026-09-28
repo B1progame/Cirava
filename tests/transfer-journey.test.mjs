@@ -11,12 +11,25 @@ test('empty transfer state presents a labeled route with hidden SVG file packets
   assert.match(html, />Secure cloud route</);
   assert.match(html, />Google Drive<\/text>/);
   assert.match(html, /data-upload-active="false" data-download-active="false"/);
-  assert.match(html, /class="transfer-file-packet upload"/);
-  assert.match(html, /class="transfer-file-packet download"/);
+  assert.equal((html.match(/class="transfer-file-packet/g) || []).length, 3);
   assert.match(html, /data-file-kind="folder"/);
   assert.match(html, /data-file-kind="image"/);
   assert.match(html, /data-file-kind="document"/);
   assert.doesNotMatch(html, /<animateMotion/);
+});
+
+test('route randomizer chooses three varied packets and shares the limit across simultaneous directions', async () => {
+  const { createTransferJourneyPackets } = await import('../src/transfer-journey.js');
+  assert.equal(typeof createTransferJourneyPackets, 'function');
+  const values = [0, 0.1, 0.2, 0.7, 0.1, 0.5, 0.9, 0.2, 0.8, 0.4];
+  let index = 0;
+  const packets = createTransferJourneyPackets(() => values[index++ % values.length], { upload: true, download: true });
+  assert.equal(packets.length, 3);
+  assert.equal(new Set(packets.map((packet) => packet.kind)).size, 3);
+  assert.ok(packets.every((packet) => ['folder', 'image', 'document', 'spreadsheet', 'video', 'archive', 'audio'].includes(packet.kind)));
+  assert.deepEqual(packets.map((packet) => packet.direction), ['download', 'download', 'upload']);
+  assert.deepEqual(packets.map((packet) => packet.phase), [0.1, 0.9, 0.8]);
+  assert.ok(packets.every((packet) => packet.speed >= 0.88 && packet.speed <= 1.12));
 });
 
 test('only actively transferring records activate their own route direction', () => {
