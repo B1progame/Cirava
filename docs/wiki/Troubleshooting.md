@@ -28,9 +28,9 @@ If pause or cancel seems delayed, confirm the transfer status changed to **Pause
 
 ## The app asks me to run the installer for an update
 
-Cirava uses the installer when the major version increases, such as 1.x to 2.x. Updates within the same major version use the in-app update, such as 1.2.1 to 1.2.2.
+Cirava uses the installer when the major version increases, such as 1.x to 2.x. Updates within the same major version use the in-app update, such as 1.2.2 to 1.2.3.
 
-If an update downloads but Cirava does not reopen, check `%APPDATA%\Cirava\updates\update-apply.log` for the handoff result. Install the latest release from [GitHub Releases](https://github.com/B1progame/Cirava/releases/latest) to refresh the updater. The installer keeps the app's Google account data in your Windows profile.
+If an update downloads but Cirava does not reopen, check `%APPDATA%\Cirava\updates\update-apply.log` for the handoff result. The updater now waits for the new app to confirm startup and rolls back to the previous app if startup fails. Install the latest release from [GitHub Releases](https://github.com/B1progame/Cirava/releases/latest) to refresh the updater. In-app updates keep the app's Google account data in your Windows profile.
 
 ## The release-channel menu stays open
 

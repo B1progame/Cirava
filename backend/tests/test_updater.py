@@ -28,12 +28,17 @@ class UpdaterTests(unittest.TestCase):
         self.assertIn("AddSeconds(120)", script)
         self.assertIn("[IO.File]::Replace($replacement,$target,$backup,$true)", script)
         self.assertIn("ComputeHash($stream)", script)
+        self.assertIn("--cirava-update-ready-file", script)
+        self.assertIn("startup confirmation", script)
+        self.assertIn("AddSeconds(45)", script)
+        self.assertIn("Stop-Process -Id $started.Id", script)
+        self.assertIn("Previous executable restored and restarted.", script)
         self.assertIn("catch", script)
         self.assertIn("4321", script)
         self.assertIn("it''s.exe", script)
 
     @unittest.skipUnless(os.name == "nt", "Windows PowerShell integration test")
-    def test_windows_apply_script_replaces_binary_logs_and_restarts(self):
+    def test_windows_apply_script_rolls_back_if_updated_binary_exits_during_startup(self):
         powershell = Path(os.environ["WINDIR"]) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
         system_app = Path(os.environ["WINDIR"]) / "System32" / "whoami.exe"
         previous_app = Path(os.environ["WINDIR"]) / "System32" / "where.exe"
@@ -48,6 +53,7 @@ class UpdaterTests(unittest.TestCase):
             shutil.copy2(system_app, source)
             shutil.copy2(previous_app, target)
             expected = hashlib.sha256(source.read_bytes()).hexdigest()
+            previous = hashlib.sha256(target.read_bytes()).hexdigest()
             log = update_dir / "update-apply.log"
             script = build_windows_update_script(99999999, str(source), str(target), str(log), expected)
             encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
@@ -57,10 +63,12 @@ class UpdaterTests(unittest.TestCase):
                 text=True,
                 timeout=30,
             )
-            self.assertEqual(result.returncode, 0, f"{result.stderr}\n{log.read_text(encoding='utf-8-sig') if log.exists() else 'no updater log'}")
-            self.assertEqual(hashlib.sha256(target.read_bytes()).hexdigest(), expected)
-            self.assertFalse(source.exists())
-            self.assertIn("Update handoff completed", log.read_text(encoding="utf-8-sig"))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(hashlib.sha256(target.read_bytes()).hexdigest(), previous)
+            self.assertTrue(source.exists())
+            log_text = log.read_text(encoding="utf-8-sig")
+            self.assertIn("exited before startup confirmation", log_text)
+            self.assertIn("Previous executable restored and restarted.", log_text)
             time.sleep(1)
 
     def test_beta_feed_uses_manifest_from_latest_github_prerelease(self):

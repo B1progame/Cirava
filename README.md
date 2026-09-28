@@ -4,9 +4,9 @@
   <p><strong>Your files, in motion.</strong><br>
   A Windows desktop client for moving files through Google Drive.</p>
   <p>
-    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/STABLE-v1.2.2-6079ed?style=for-the-badge" alt="Latest stable release: v1.2.2"></a>
+    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/STABLE-v1.2.3-6079ed?style=for-the-badge" alt="Latest stable release: v1.2.3"></a>
     <img src="https://img.shields.io/badge/platform-Windows-2aa995?style=for-the-badge" alt="Windows desktop app">
-    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/download-v1.2.2-28344d?style=for-the-badge" alt="Download Cirava 1.2.2"></a>
+    <a href="https://github.com/B1progame/Cirava/releases/latest"><img src="https://img.shields.io/badge/download-v1.2.3-28344d?style=for-the-badge" alt="Download Cirava 1.2.3"></a>
   </p>
 </div>
 
@@ -24,13 +24,13 @@ You can close the window while work is running. Cirava stays in the Windows noti
 
 ## Download and install
 
-Get the latest build from [GitHub Releases](https://github.com/B1progame/Cirava/releases/latest). The v1.2.2 release includes:
+Get the latest build from [GitHub Releases](https://github.com/B1progame/Cirava/releases/latest). The v1.2.3 release includes:
 
-- `Cirava-Setup-1.2.2.exe` for the Windows installer.
+- `Cirava-Setup-1.2.3.exe` for the Windows installer.
 - `Cirava.exe` for the standalone app, with no installer.
 - `update-manifest.json` for checksum-verified in-app updates.
 
-This release gives the upload planner more room for choosing a Drive destination, refreshes the 7-Zip settings, and verifies the official installer against GitHub's published SHA-256 before setup runs. The in-app updater continues to verify the replacement, apply it with a rollback copy, restart Cirava, and record handoff errors in `%APPDATA%\Cirava\updates\update-apply.log`.
+This release makes compression-level selection in the upload planner clearer and fixes the in-app updater handoff: Cirava waits for the updated app to confirm startup and restores the previous app if the new one fails to launch. Google sign-in data remains in your Windows profile during in-app updates.
 
 After launching Cirava, connect a Google account using a Desktop OAuth client. This is a one-time setup for the Cloud project and client ID. Follow the [step-by-step Google OAuth setup](GOOGLE_SETUP.md), then use the [wiki](https://github.com/B1progame/Cirava/wiki) for everyday tasks and troubleshooting.
 

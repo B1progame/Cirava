@@ -54,8 +54,15 @@ button:focus-visible {
 .archive-setting-feedback > small { color: #8392aa; font-size: 10px; line-height: 1.45; }
 .upload-archive-tools { grid-template-columns: minmax(0, 1fr) auto auto; }
 .upload-archive-choice { grid-column: 1 / -1; }
-.archive-level-choice { display: grid; gap: 4px; color: #7384a1; font-size: 11px; }
-.archive-level-choice select { min-height: 34px; border: 1px solid #cbd8ef; border-radius: 9px; background: white; color: #405273; }
+.archive-level-choice { display: grid; grid-column: 1 / -1; gap: 6px; min-width: 0; color: #7384a1; font-size: 11px; }
+.archive-level-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; min-width: 0; padding: 4px; border: 1px solid rgba(185, 204, 239, .72); border-radius: 12px; background: rgba(244, 248, 255, .82); }
+.archive-level-options button { display: grid; min-width: 0; min-height: 40px; align-content: center; justify-items: center; gap: 1px; padding: 4px 2px; border: 1px solid transparent; border-radius: 8px; color: #637696; background: transparent; font: inherit; cursor: pointer; }
+.archive-level-options button strong { color: inherit; font-size: 11px; line-height: 1.1; }
+.archive-level-options button small { overflow: hidden; max-width: 100%; color: inherit; font-size: 8px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.archive-level-options button:hover { color: #4969ce; background: rgba(255,255,255,.8); }
+.archive-level-options button[aria-pressed='true'] { border-color: rgba(93, 121, 233, .18); color: #4968d0; background: linear-gradient(110deg, rgba(225, 233, 255, .95), rgba(226, 247, 246, .92)); box-shadow: 0 2px 7px rgba(66, 93, 164, .08); }
+.archive-level-options button:focus-visible { outline: 2px solid var(--button-focus); outline-offset: 1px; }
+.upload-archive-tools > [data-cirava-compression-preview] { grid-column: 1 / -1; justify-self: start; min-height: 36px; }
 .upload-archive-tools[hidden] { display: none; }
 .upload-archive-result { grid-column: 1 / -1; }
 
@@ -70,6 +77,9 @@ html[data-theme='dark'] .archive-setting-copy h3 { color: #e0e8f8; }
 html[data-theme='dark'] .archive-setting-copy a { color: #aabaff; }
 html[data-theme='dark'] .archive-setting-feedback { border-top-color: rgba(126,149,192,.25); }
 html[data-theme='dark'] .archive-setting-feedback > small { color: #9aa9c1; }
+html[data-theme='dark'] .archive-level-options { border-color: rgba(126,149,192,.35); background: rgba(30,39,54,.78); }
+html[data-theme='dark'] .archive-level-options button { color: #a9b7d0; }
+html[data-theme='dark'] .archive-level-options button[aria-pressed='true'] { color: #d0d9ff; background: rgba(77,99,158,.42); }
 
 .primary,
 .secondary,

@@ -1075,6 +1075,27 @@ def run() -> None:
     api._notifier.set_navigation_callback(navigate_from_tray)
     api._notifier.set_transfer_callbacks(control_transfers_from_tray, api.tray_transfer_summary)
 
+    update_ready_file = next(
+        (arg.split("=", 1)[1] for arg in sys.argv[1:] if arg.startswith("--cirava-update-ready-file=")),
+        None,
+    )
+    if update_ready_file is None and "--cirava-update-ready-file" in sys.argv[1:]:
+        index = sys.argv.index("--cirava-update-ready-file")
+        if index + 1 < len(sys.argv):
+            update_ready_file = sys.argv[index + 1]
+    if update_ready_file:
+        def confirm_update_startup(*_args: object) -> None:
+            """Tell the handoff process the new executable rendered its window."""
+            try:
+                ready_path = Path(update_ready_file)
+                ready_path.parent.mkdir(parents=True, exist_ok=True)
+                ready_path.write_text("ready", encoding="utf-8")
+            except OSError:
+                # The updater will time out and restore the previous executable.
+                pass
+
+        window.events.loaded += confirm_update_startup
+
     def close_to_tray() -> bool:
         moving_statuses = {TransferStatus.QUEUED, TransferStatus.PREPARING, TransferStatus.TRANSFERRING}
         try:
