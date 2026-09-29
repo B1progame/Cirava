@@ -24,12 +24,27 @@
     </style>
     <script>
       if (new URLSearchParams(location.search).get('inspect') === '1') {
+        const inspectTransfers = [];
+        const inspectRecord = (path, destination, startImmediately) => {
+          const filename = String(path).split(/[\\/]/).filter(Boolean).pop() || 'inspection-photo.jpg';
+          const record = { id: `inspect-transfer-${Date.now()}-${Math.random().toString(16).slice(2)}`, direction: 'upload', filename, local_path: path, size: 4_200_000, destination, status: startImmediately ? 'transferring' : 'queued', bytes_transferred: startImmediately ? 840_000 : 0, deferred: !startImmediately };
+          inspectTransfers.unshift(record);
+          return record;
+        };
         window.pywebview = { api: {
           boot_state: async () => ({ configured: true, authenticated: true }),
           load_preferences: async () => ({}),
           save_preferences: async () => ({ ok: true, saved: [] }),
           get_account_profile: async () => ({ name: 'Inspection account', email: 'inspection@cirava.local', photoUrl: '', driveName: 'My Drive' }),
+          pick_files: async () => ['C:\\Users\\Inspection\\Pictures\\summer-photo.jpg'],
+          pick_folder: async () => ['C:\\Users\\Inspection\\Pictures\\summer-photo.jpg', 'C:\\Users\\Inspection\\Pictures\\lake-video.mp4'],
+          get_google_photos_local_previews: async (paths) => (paths || []).map((path, index) => ({ path, name: String(path).split(/[\\\\/]/).filter(Boolean).pop() || `photo-${index + 1}.jpg`, size: 4200000, modified: Date.now() / 1000 - index * 86400, kind: /\\.(mp4|mov|mkv|avi)$/i.test(path) ? 'video' : 'photo', preview: null })),
           list_drive_files: async () => ({ files: [] }),
+          list_drive_gallery_files: async (pageToken, query) => ({ files: [{ id: 'drive-photo-1', name: 'River in spring.jpg', mimeType: 'image/jpeg', size: '2457000', modifiedTime: new Date().toISOString(), thumbnailLink: '', md5Checksum: 'mock' }, { id: 'drive-doc-1', name: 'Trip notes.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', size: '8192', modifiedTime: new Date(Date.now() - 86400000).toISOString(), thumbnailLink: '' }].filter((file) => !query || file.name.toLowerCase().includes(query.toLowerCase())), nextPageToken: '' }),
+          start_google_photos_picker: async () => ({ session_id: 'inspection-picker', polling_config: { pollInterval: '1s', timeoutIn: '600s' } }),
+          get_google_photos_picker_selection: async () => ({ ready: true, collection_id: 'inspect-photos', total: 1, next_offset: null, items: [{ id: 'photos-picked-1', name: 'Selected from Google Photos.jpg', size: 2700000, modified: Date.now() / 1000, kind: 'photo', preview: null }] }),
+          get_google_photos_picker_page: async (collectionId, offset) => ({ collection_id: collectionId, total: 1, next_offset: null, items: [{ id: 'photos-picked-1', name: 'Selected from Google Photos.jpg', size: 2700000, modified: Date.now() / 1000, kind: 'photo', preview: null }] }),
+          create_drive_gallery_downloads: async (files, directory) => ({ records: (files || []).map((file) => inspectRecord(`${directory}\\${file.name}`, 'google_drive', true)), skipped: 0 }),
             find_drive_files_by_name: async () => ({ files: [] }),
             list_trashed_drive_files: async () => ({ files: [] }),
             restore_drive_file: async (id) => ({ id, status: 'restored' }),
@@ -38,7 +53,14 @@
           create_drive_folder: async (name, parent_id = 'root') => ({ id: `inspect-${Date.now()}`, name, parent_id }),
           create_drive_file: async (name, parent_id = 'root', mime_type = 'text/plain') => ({ id: `inspect-${Date.now()}`, name, parent_id, mime_type }),
           trash_drive_file: async (id) => ({ id, status: 'trashed' }),
-          list_transfers: async () => [],
+          list_transfers: async () => inspectTransfers,
+          list_shared_drives: async () => ({ drives: [{ id: 'inspect-team-drive', name: 'Inspection team drive' }] }),
+          resolve_shared_drive_link: async (link) => {
+            if (!/^https:\/\/(drive\.google\.com|docs\.google\.com)\//i.test(link)) throw new Error('Paste a Google Drive shared-drive or folder link.');
+            return { drive_id: 'inspect-team-drive', parent_id: 'inspect-team-drive', name: 'Inspection team drive' };
+          },
+          create_upload_batch: async (paths, _parentId, _chunkSize, startImmediately, driveId) => (paths || []).map((path) => inspectRecord(path, 'google_drive', Boolean(startImmediately))),
+          create_google_photos_upload_batch: async (paths, startImmediately) => (paths || []).map((path) => inspectRecord(path, 'google_photos', Boolean(startImmediately))),
           get_transfer_limit: async () => ({ mbps: 0 }),
           get_upload_concurrency: async () => ({ workers: 4 }),
           set_transfer_limit: async (mbps) => ({ mbps }),

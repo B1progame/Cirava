@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import base64
 import threading
 import urllib.parse
 from typing import Callable, Iterator
@@ -162,6 +163,56 @@ class DriveApiClient:
             if not page_token:
                 return {"files": files}
 
+    def list_gallery_files(self, *, page_token: str | None = None, query: str | None = None, pictures_only: bool = False, page_size: int = 100) -> dict:
+        """Page My Drive and every accessible shared drive without allDrives' incomplete-search risk."""
+        clauses = ["trashed = false"]
+        if query and query.strip():
+            escaped = query.strip().replace("\\", "\\\\").replace("'", "\\'")
+            clauses.append(f"name contains '{escaped}'")
+        if pictures_only:
+            clauses.append("mimeType contains 'image/'")
+        if page_token:
+            try:
+                state = json.loads(base64.urlsafe_b64decode(page_token.removeprefix("cirava:") + "=" * (-len(page_token.removeprefix("cirava:")) % 4)))
+                corpora = state["corpora"]
+                index = int(state["index"])
+                current_token = state.get("page_token")
+            except (ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
+                raise ValueError("The Drive gallery page expired. Refresh the list to continue.") from error
+        else:
+            corpora = [{"kind": "user"}] + [{"kind": "drive", "id": str(drive["id"])} for drive in self.list_all_shared_drives() if drive.get("id")]
+            index = 0
+            current_token = None
+        while index < len(corpora):
+            corpus = corpora[index]
+            params = {
+                "q": " and ".join(clauses),
+                "fields": "nextPageToken,files(id,name,mimeType,size,modifiedTime,md5Checksum,thumbnailLink,webViewLink,driveId,capabilities(canDownload))",
+                "pageSize": str(max(1, min(int(page_size), 1000))),
+                "orderBy": "modifiedTime desc",
+                "corpora": corpus["kind"],
+                "includeItemsFromAllDrives": "true",
+                "supportsAllDrives": "true",
+            }
+            if corpus["kind"] == "drive":
+                params["driveId"] = corpus["id"]
+            if current_token:
+                params["pageToken"] = current_token
+            _, _, data = self._request(f"{DRIVE_API}/files?{urllib.parse.urlencode(params)}")
+            response = json.loads(data.decode())
+            files = response.get("files", [])
+            next_token = response.get("nextPageToken")
+            if next_token:
+                cursor_state = {"corpora": corpora, "index": index, "page_token": next_token}
+            else:
+                index += 1
+                current_token = None
+                cursor_state = {"corpora": corpora, "index": index, "page_token": None}
+            if files or index >= len(corpora):
+                encoded = base64.urlsafe_b64encode(json.dumps(cursor_state, separators=(",", ":")).encode()).decode().rstrip("=")
+                return {"files": files, "nextPageToken": f"cirava:{encoded}" if cursor_state["index"] < len(corpora) or cursor_state.get("page_token") else None}
+        return {"files": [], "nextPageToken": None}
+
     def find_files_by_name(self, name: str, *, shared_drive_id: str | None = None) -> list[dict]:
         """Find exact-name items across Drive folders, not only the visible root."""
         if not name or not name.strip():
@@ -241,6 +292,47 @@ class DriveApiClient:
         _, _, data = self._request(f"{DRIVE_API}/drives?{urllib.parse.urlencode(params)}")
         return json.loads(data.decode())
 
+    def list_all_shared_drives(self) -> list[dict]:
+        drives: list[dict] = []
+        page_token: str | None = None
+        while True:
+            page = self.list_shared_drives(page_token)
+            drives.extend(page.get("drives", []))
+            page_token = page.get("nextPageToken")
+            if not page_token:
+                return drives
+
+    def resolve_shared_drive_link(self, link: str) -> dict:
+        parsed = urllib.parse.urlparse(link.strip())
+        if parsed.scheme not in {"http", "https"} or parsed.hostname not in {"drive.google.com", "docs.google.com"}:
+            raise ValueError("Paste a Google Drive folder or shared-drive link")
+        segments = [urllib.parse.unquote(part) for part in parsed.path.split("/") if part]
+        if "shared-drives" in segments:
+            index = segments.index("shared-drives")
+            drive_id = segments[index + 1] if index + 1 < len(segments) else ""
+            if not drive_id:
+                raise ValueError("The shared-drive link does not include a drive ID")
+            params = urllib.parse.urlencode({"fields": "id,name"})
+            _, _, data = self._request(f"{DRIVE_API}/drives/{urllib.parse.quote(drive_id, safe='')}?{params}")
+            drive = json.loads(data.decode())
+            return {"drive_id": drive["id"], "parent_id": drive["id"], "name": drive.get("name") or "Shared drive"}
+        folder_id = ""
+        if "folders" in segments:
+            index = segments.index("folders")
+            folder_id = segments[index + 1] if index + 1 < len(segments) else ""
+        if not folder_id:
+            folder_id = urllib.parse.parse_qs(parsed.query).get("id", [""])[0]
+        if not folder_id:
+            raise ValueError("The Drive link does not include a folder ID")
+        params = urllib.parse.urlencode({"supportsAllDrives": "true", "fields": "id,name,mimeType,driveId,parents"})
+        _, _, data = self._request(f"{DRIVE_API}/files/{urllib.parse.quote(folder_id, safe='')}?{params}")
+        folder = json.loads(data.decode())
+        if folder.get("mimeType") != "application/vnd.google-apps.folder":
+            raise ValueError("The pasted Drive link points to a file, not a folder")
+        if not folder.get("driveId"):
+            raise ValueError("That folder is in My Drive, not a shared drive. Choose My Drive in the destination selector.")
+        return {"drive_id": folder["driveId"], "parent_id": folder["id"], "name": folder.get("name") or "Shared-drive folder"}
+
     def create_folder(self, name: str, parent_id: str, *, shared_drive_id: str | None = None) -> str:
         payload = {"name": name, "mimeType": "application/vnd.google-apps.folder", "parents": [parent_id]}
         params = {"supportsAllDrives": "true"}
@@ -271,8 +363,8 @@ class DriveApiClient:
             raise DriveApiError(status, "Google Drive did not create the file")
         return json.loads(data.decode())
 
-    def find_folder(self, name: str, parent_id: str) -> str | None:
-        result = self.list_files(parent_id=parent_id, query=name)
+    def find_folder(self, name: str, parent_id: str, *, shared_drive_id: str | None = None) -> str | None:
+        result = self.list_files(parent_id=parent_id, query=name, shared_drive_id=shared_drive_id)
         for item in result.get("files", []):
             if item.get("name") == name and item.get("mimeType") == "application/vnd.google-apps.folder":
                 return str(item["id"])

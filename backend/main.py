@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import ctypes
+import base64
 import json
 import mimetypes
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -16,6 +18,7 @@ from pathlib import Path
 from typing import Iterator
 
 from cirava_backend.drive_api import DriveApiClient, DriveApiError
+from cirava_backend.photos_api import GooglePhotosApiClient, GooglePhotosApiError
 from cirava_backend.drive_archive import download_folder_zip
 from cirava_backend.archive_compression import SevenZip, validate_compression_level
 from cirava_backend.adaptive import AdaptiveConcurrencyController, AdaptiveController, AdaptiveUploadConcurrencyController, AdaptiveWorkerGate, AggregateUploadThroughput
@@ -23,7 +26,7 @@ from cirava_backend.models import TransferRecord, TransferStatus
 from cirava_backend.oauth import OAuthConfig, OAuthSession, TokenManager, TokenStore
 from cirava_backend.notifications import TrayNotifier
 from cirava_backend.storage import TransferStore
-from cirava_backend.transfer_engine import ResumableUploader, SegmentedDownloader, TokenBucket, TransferStopped, TransferTelemetry, resolve_conflict, verify_md5
+from cirava_backend.transfer_engine import ResumableUploader, RetryPolicy, SegmentedDownloader, TokenBucket, TransferStopped, TransferTelemetry, resolve_conflict, verify_md5
 from cirava_backend.updater import Updater, build_windows_update_script, is_newer_version, requires_major_installer
 from cirava_backend import __version__
 
@@ -64,6 +67,10 @@ class CiravaApi:
         self._drive_client_lock = threading.Lock()
         self._drive_client: DriveApiClient | None = None
         self._drive_client_config: tuple[str, str] | None = None
+        self._photos_client: GooglePhotosApiClient | None = None
+        self._photos_picker_sessions: set[str] = set()
+        self._photos_picker_collections: dict[str, tuple[float, list[dict]]] = {}
+        self._photos_picker_lock = threading.Lock()
         self._control_lock = threading.Lock()
         self._worker_condition = threading.Condition()
         self._active_workers: set[str] = set()
@@ -170,16 +177,16 @@ class CiravaApi:
         if self.load_preferences().get("showTransferNotifications", "true").lower() != "true":
             return
         if record.status == TransferStatus.FAILED:
-            heading = "Upload failed" if record.direction == "upload" else "Download failed"
+            heading = ("Google Photos upload failed" if record.destination == "google_photos" else "Upload failed") if record.direction == "upload" else "Download failed"
             detail = record.error or "No additional error details were provided."
             self._notify_safely(heading, f"{record.filename}: {detail[:220]}")
             return
-        heading = "Upload complete" if record.direction == "upload" else "Download complete"
+        heading = ("Google Photos upload complete" if record.destination == "google_photos" else "Upload complete") if record.direction == "upload" else "Download complete"
         self._notify_safely(heading, f"{record.filename} completed successfully")
 
     def boot_state(self) -> dict:
         tokens = self.tokens.load() or {}
-        return {"configured": self._oauth_config is not None or bool(self._setting("client_id")), "authenticated": tokens.get("cirava_scope_version") == 2, "transfers": [record.to_dict() for record in self.store.list()]}
+        return {"configured": self._oauth_config is not None or bool(self._setting("client_id")), "authenticated": tokens.get("cirava_scope_version") == 4, "transfers": [record.to_dict() for record in self.store.list()]}
 
     def save_google_configuration(self, client_id: str, client_secret: str | None = None) -> dict:
         if ".apps.googleusercontent.com" not in client_id or len(client_id) < 30:
@@ -220,7 +227,7 @@ class CiravaApi:
             if not config.client_id:
                 raise RuntimeError("Google configuration is missing")
             tokens = OAuthSession(config).login()
-            tokens["cirava_scope_version"] = 2
+            tokens["cirava_scope_version"] = 4
             self.tokens.save(tokens)
             return {"ok": True, "authenticated": True}
 
@@ -280,6 +287,49 @@ class CiravaApi:
         selected = window.create_file_dialog(webview.FOLDER_DIALOG) or []
         return [str(path) for path in selected]
 
+    def get_google_photos_local_previews(self, local_paths: list[str], limit: int = 300) -> list[dict]:
+        """Return bounded, local-only gallery metadata and small image previews."""
+        image_extensions = {".avif", ".bmp", ".gif", ".heic", ".ico", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}
+        video_extensions = {".3gp", ".3g2", ".asf", ".avi", ".divx", ".m2t", ".m2ts", ".m4v", ".mkv", ".mmv", ".mod", ".mov", ".mp4", ".mpg", ".mpeg", ".mts", ".tod", ".wmv"}
+        supported = image_extensions | video_extensions
+        files: list[Path] = []
+        for raw_path in local_paths:
+            selected = Path(raw_path)
+            if selected.is_dir():
+                for candidate in selected.rglob("*"):
+                    if candidate.is_file() and candidate.suffix.lower() in supported:
+                        files.append(candidate)
+                        if len(files) >= max(1, min(int(limit), 300)):
+                            break
+            elif selected.is_file() and selected.suffix.lower() in supported:
+                files.append(selected)
+            if len(files) >= max(1, min(int(limit), 300)):
+                break
+
+        previews = []
+        for path in files:
+            try:
+                stat = path.stat()
+                preview = None
+                if path.suffix.lower() in image_extensions:
+                    try:
+                        from PIL import Image, ImageOps
+                        from io import BytesIO
+                        with Image.open(path) as source:
+                            image = ImageOps.exif_transpose(source)
+                            image.thumbnail((360, 260))
+                            image = image.convert("RGB")
+                            output = BytesIO()
+                            image.save(output, format="JPEG", quality=76, optimize=True)
+                            preview = "data:image/jpeg;base64," + base64.b64encode(output.getvalue()).decode("ascii")
+                    except Exception:
+                        # Unsupported/corrupt codecs still get a useful gallery tile.
+                        preview = None
+                previews.append({"path": str(path), "name": path.name, "size": stat.st_size, "modified": stat.st_mtime, "kind": "video" if path.suffix.lower() in video_extensions else "photo", "preview": preview})
+            except OSError:
+                continue
+        return previews
+
     def pick_save_path(self, filename: str) -> str | None:
         import webview
         if not webview.windows:
@@ -326,6 +376,125 @@ class CiravaApi:
         shared_drive_id = self._setting("shared_drive_id") or None
         return self._drive().list_all_files(parent_id=parent_id, query=query, shared_drive_id=shared_drive_id)
 
+    def list_my_drive_files(self, parent_id: str = "root", query: str | None = None) -> dict:
+        return self._drive().list_all_files(parent_id=parent_id, query=query)
+
+    def list_drive_gallery_files(self, page_token: str | None = None, query: str | None = None, pictures_only: bool = False, page_size: int = 100) -> dict:
+        return self._drive().list_gallery_files(page_token=page_token, query=query, pictures_only=pictures_only, page_size=page_size)
+
+    def start_google_photos_picker(self) -> dict:
+        session = self._photos().create_picker_session()
+        session_id = str(session.get("id") or "")
+        picker_uri = str(session.get("pickerUri") or "")
+        parsed = urllib.parse.urlparse(picker_uri)
+        if not session_id or parsed.scheme != "https" or parsed.hostname not in {"photos.google.com", "photos.googleusercontent.com"}:
+            raise RuntimeError("Google Photos did not return a valid Picker session")
+        with self._photos_picker_lock:
+            self._photos_picker_sessions.add(session_id)
+        if not webbrowser.open_new_tab(picker_uri):
+            with self._photos_picker_lock:
+                self._photos_picker_sessions.discard(session_id)
+            self._photos().delete_picker_session(session_id)
+            raise RuntimeError("Could not open the Google Photos Picker in your browser")
+        return {"session_id": session_id, "polling_config": session.get("pollingConfig") or {}}
+
+    def open_google_photos(self, item_url: str | None = None) -> dict:
+        """Open Google Photos in the user's system browser for manual item actions."""
+        url = "https://photos.google.com/"
+        if item_url:
+            parsed = urllib.parse.urlparse(item_url)
+            if parsed.scheme != "https" or parsed.hostname != "photos.google.com" or parsed.username or parsed.password:
+                raise ValueError("Only Google Photos links can be opened here")
+            url = item_url
+        if not webbrowser.open_new_tab(url):
+            raise RuntimeError("Could not open Google Photos in your default browser")
+        return {"url": url}
+
+    def get_google_photos_picker_selection(self, session_id: str) -> dict:
+        with self._photos_picker_lock:
+            if session_id not in self._photos_picker_sessions:
+                raise ValueError("That Google Photos Picker session is no longer active")
+        client = self._photos()
+        session = client.get_picker_session(session_id)
+        if not session.get("mediaItemsSet"):
+            return {"ready": False, "polling_config": session.get("pollingConfig") or {}}
+        raw_items = client.list_picker_media_items(session_id)
+        collection_id = str(uuid.uuid4())
+        with self._photos_picker_lock:
+            now = time.monotonic()
+            self._photos_picker_collections = {key: value for key, value in self._photos_picker_collections.items() if value[0] > now}
+            self._photos_picker_collections[collection_id] = (now + 3600, raw_items)
+            self._photos_picker_sessions.discard(session_id)
+        try:
+            client.delete_picker_session(session_id)
+        except Exception:
+            pass
+        page = self.get_google_photos_picker_page(collection_id, 0, 100)
+        page["ready"] = True
+        return page
+
+    def get_google_photos_picker_page(self, collection_id: str, offset: int = 0, limit: int = 100) -> dict:
+        with self._photos_picker_lock:
+            collection = self._photos_picker_collections.get(collection_id)
+            if not collection or collection[0] <= time.monotonic():
+                self._photos_picker_collections.pop(collection_id, None)
+                raise ValueError("That Google Photos selection expired. Select the photos again to refresh it.")
+            raw_items = collection[1]
+        start = max(0, int(offset))
+        page_end = min(len(raw_items), start + max(1, min(int(limit), 100)))
+        page_items = raw_items[start:page_end]
+        from concurrent.futures import ThreadPoolExecutor
+        from io import BytesIO
+        from PIL import Image
+        previews: list[dict | None] = [None] * len(page_items)
+
+        def make_preview(index: int, item: dict) -> tuple[int, dict]:
+            media_file = item.get("mediaFile") or {}
+            base_url = str(media_file.get("baseUrl") or "")
+            mime_type = str(media_file.get("mimeType") or item.get("mimeType") or "application/octet-stream")
+            name = str(media_file.get("filename") or item.get("filename") or f"Google Photos item {start + index + 1}")
+            metadata = media_file.get("mediaFileMetadata") or item.get("mediaFileMetadata") or {}
+            creation = str(metadata.get("creationTime") or "")
+            preview = None
+            if base_url:
+                try:
+                    thumbnail_mime, thumbnail = client.fetch_picker_thumbnail(base_url, video=mime_type.startswith("video/"), max_bytes=350_000)
+                    with Image.open(BytesIO(thumbnail)) as image:
+                        image.thumbnail((360, 260))
+                        output = BytesIO()
+                        image.convert("RGB").save(output, format="JPEG", quality=72, optimize=True)
+                    preview = "data:image/jpeg;base64," + base64.b64encode(output.getvalue()).decode("ascii")
+                except Exception:
+                    preview = None
+            try:
+                modified = __import__("datetime").datetime.fromisoformat(creation.replace("Z", "+00:00")).timestamp()
+            except (ValueError, TypeError):
+                modified = time.time()
+            return index, {"id": str(item.get("id") or start + index), "name": name, "size": int(media_file.get("size") or 0), "modified": modified, "kind": "video" if mime_type.startswith("video/") else "photo", "preview": preview}
+
+        if previews:
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                futures = [pool.submit(make_preview, index, item) for index, item in enumerate(page_items)]
+                for future in futures:
+                    index, result = future.result()
+                    previews[index] = result
+        next_offset = page_end if page_end < len(raw_items) else None
+        if next_offset is None:
+            with self._photos_picker_lock:
+                self._photos_picker_collections.pop(collection_id, None)
+        return {"collection_id": collection_id, "items": [item for item in previews if item], "total": len(raw_items), "next_offset": next_offset}
+
+    def cancel_google_photos_picker(self, session_id: str) -> dict:
+        with self._photos_picker_lock:
+            existed = session_id in self._photos_picker_sessions
+            self._photos_picker_sessions.discard(session_id)
+        if existed:
+            try:
+                self._photos().delete_picker_session(session_id)
+            except Exception:
+                pass
+        return {"cancelled": existed}
+
     def find_drive_files_by_name(self, name: str) -> dict:
         if not name or not name.strip():
             raise ValueError("Drive file name is required")
@@ -349,7 +518,15 @@ class CiravaApi:
         return self._drive().storage_quota()
 
     def list_shared_drives(self) -> dict:
-        return self._drive().list_shared_drives()
+        return {"drives": self._drive().list_all_shared_drives()}
+
+    def list_shared_drive_files(self, parent_id: str, drive_id: str) -> dict:
+        if not drive_id:
+            raise ValueError("Choose a shared drive first")
+        return self._drive().list_all_files(parent_id=parent_id or drive_id, shared_drive_id=drive_id)
+
+    def resolve_shared_drive_link(self, link: str) -> dict:
+        return self._drive().resolve_shared_drive_link(link)
 
     def select_shared_drive(self, drive_id: str | None = None) -> dict:
         self._set_setting("shared_drive_id", drive_id or "")
@@ -422,14 +599,14 @@ class CiravaApi:
         destination.write_bytes(self._drive().export_file(drive_file_id, mime_type))
         return {"status": "completed", "local_path": str(destination), "bytes": destination.stat().st_size}
 
-    def create_upload(self, local_path: str, parent_id: str = "root", chunk_size: int = 64 * 1024 * 1024, relative_path: str | None = None, start_immediately: bool = True) -> dict:
+    def create_upload(self, local_path: str, parent_id: str = "root", chunk_size: int = 64 * 1024 * 1024, relative_path: str | None = None, start_immediately: bool = True, destination_drive_id: str | None = None) -> dict:
         path = Path(local_path)
         if not path.is_file():
             raise FileNotFoundError(local_path)
         transfer_id = str(uuid.uuid4())
-        active_drive = self._setting("shared_drive_id") or None
+        active_drive = destination_drive_id
         effective_parent = active_drive if parent_id == "root" and active_drive else parent_id
-        record = TransferRecord(id=transfer_id, direction="upload", filename=path.name, local_path=str(path), size=path.stat().st_size, drive_parent_id=effective_parent, relative_path=relative_path, status=TransferStatus.QUEUED, deferred=not start_immediately)
+        record = TransferRecord(id=transfer_id, direction="upload", filename=path.name, local_path=str(path), size=path.stat().st_size, drive_parent_id=effective_parent, relative_path=relative_path, destination="google_drive", destination_drive_id=active_drive, status=TransferStatus.QUEUED, deferred=not start_immediately)
         self.store.upsert(record)
         self._worker_specs[record.id] = ("upload", (chunk_size,))
         self._controls[record.id] = {"stop": threading.Event(), "action": "run"}
@@ -437,7 +614,7 @@ class CiravaApi:
             threading.Thread(target=self._upload_worker, args=(record, chunk_size), daemon=True).start()
         return record.to_dict()
 
-    def create_upload_batch(self, local_paths: list[str], parent_id: str = "root", chunk_size: int = 64 * 1024 * 1024, start_immediately: bool = True) -> list[dict]:
+    def create_upload_batch(self, local_paths: list[str], parent_id: str = "root", chunk_size: int = 64 * 1024 * 1024, start_immediately: bool = True, destination_drive_id: str | None = None) -> list[dict]:
         expanded: list[Path] = []
         relative_paths: dict[Path, str] = {}
         for raw_path in local_paths:
@@ -446,10 +623,43 @@ class CiravaApi:
                 for item in path.rglob("*"):
                     if item.is_file():
                         expanded.append(item)
-                        relative_paths[item] = str(item.relative_to(path).parent).replace(".", "")
+                        relative_parent = item.relative_to(path).parent
+                        relative_paths[item] = "" if relative_parent == Path(".") else relative_parent.as_posix()
             elif path.is_file():
                 expanded.append(path)
-        return [self.create_upload(str(path), parent_id, chunk_size, relative_paths.get(path) or None, start_immediately) for path in expanded]
+        return [self.create_upload(str(path), parent_id, chunk_size, relative_paths.get(path) or None, start_immediately, destination_drive_id) for path in expanded]
+
+    def create_google_photos_upload_batch(self, local_paths: list[str], start_immediately: bool = True, album_title: str | None = None) -> list[dict]:
+        image_extensions = {".avif", ".bmp", ".gif", ".heic", ".ico", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp", ".dng", ".arw", ".cr2", ".cr3", ".nef", ".nrw", ".orf", ".rw2", ".pef", ".srw"}
+        video_extensions = {".3gp", ".3g2", ".asf", ".avi", ".divx", ".m2t", ".m2ts", ".m4v", ".mkv", ".mmv", ".mod", ".mov", ".mp4", ".mpg", ".mpeg", ".mts", ".tod", ".wmv"}
+        paths: list[Path] = []
+        for raw in local_paths:
+            selected = Path(raw)
+            candidates = [item for item in selected.rglob("*") if item.is_file()] if selected.is_dir() else [selected]
+            paths.extend(item for item in candidates if item.suffix.lower() in image_extensions | video_extensions)
+        if not paths:
+            raise ValueError("Choose supported photos or videos to upload")
+        validated: list[Path] = []
+        for path in paths:
+            if not path.is_file():
+                raise FileNotFoundError(str(path))
+            if path.stat().st_size <= 0:
+                raise ValueError(f"{path.name} is empty and cannot be uploaded to Google Photos")
+            limit = 200 * 1024 * 1024 if path.suffix.lower() in image_extensions else 20 * 1024 * 1024 * 1024
+            if path.stat().st_size > limit:
+                raise ValueError(f"{path.name} exceeds Google Photos' {limit // (1024 * 1024)} MB upload limit")
+            validated.append(path)
+        album = self._photos().create_album(album_title) if album_title is not None else None
+        records = []
+        for path in validated:
+            record = TransferRecord(id=str(uuid.uuid4()), direction="upload", filename=path.name, local_path=str(path), size=path.stat().st_size, destination="google_photos", destination_album_id=album.get("id") if album else None, destination_album_title=album.get("title") if album else None, status=TransferStatus.QUEUED, deferred=not start_immediately)
+            self.store.upsert(record)
+            self._worker_specs[record.id] = ("photos_upload", (64 * 1024 * 1024,))
+            self._controls[record.id] = {"stop": threading.Event(), "action": "run"}
+            if self.start_workers and start_immediately:
+                threading.Thread(target=self._upload_worker, args=(record, 64 * 1024 * 1024), daemon=True).start()
+            records.append(record.to_dict())
+        return records
 
     def create_download(self, drive_file_id: str, local_path: str, size: int, segment_size: int = 64 * 1024 * 1024, workers: int = 4, expected_md5: str | None = None, conflict_policy: str = "ask", start_immediately: bool = True) -> dict:
         destination = resolve_conflict(Path(local_path), conflict_policy)
@@ -463,6 +673,32 @@ class CiravaApi:
         if self.start_workers and start_immediately:
             threading.Thread(target=self._download_worker, args=(record, segment_size, workers, expected_md5), daemon=True).start()
         return record.to_dict()
+
+    def create_drive_gallery_downloads(self, files: list[dict], local_directory: str, start_immediately: bool = True) -> dict:
+        directory = Path(local_directory).expanduser().resolve()
+        if not directory.is_dir():
+            raise ValueError("Choose an existing folder for the Drive downloads")
+        records = []
+        skipped = 0
+        for item in files:
+            file_id = str(item.get("id") or "")
+            mime_type = str(item.get("mimeType") or "")
+            if not file_id or mime_type.startswith("application/vnd.google-apps.") or mime_type == "application/vnd.google-apps.folder":
+                skipped += 1
+                continue
+            try:
+                size = int(item.get("size") or 0)
+            except (TypeError, ValueError):
+                size = 0
+            if size < 0:
+                skipped += 1
+                continue
+            name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", str(item.get("name") or "drive-file" )).strip(" .") or "drive-file"
+            destination = directory / name
+            record = self.create_download(file_id, str(destination), size, expected_md5=str(item.get("md5Checksum") or "") or None, conflict_policy="keep-both", start_immediately=start_immediately)
+            if record.get("id"):
+                records.append(record)
+        return {"records": records, "skipped": skipped}
 
     def pause_transfer(self, transfer_id: str) -> dict:
         return self._stop_transfer(transfer_id, "pause")
@@ -490,7 +726,7 @@ class CiravaApi:
                 raise ValueError("This transfer is not waiting in the queue")
             spec = self._worker_specs.get(transfer_id)
             if not spec:
-                spec = ("upload", (64 * 1024 * 1024,)) if record.direction == "upload" else ("download", (64 * 1024 * 1024, 4, None))
+                spec = (("photos_upload" if record.destination == "google_photos" else "upload"), (64 * 1024 * 1024,)) if record.direction == "upload" else ("download", (64 * 1024 * 1024, 4, None))
                 self._worker_specs[transfer_id] = spec
             record.deferred = False
             record.error = None
@@ -498,7 +734,7 @@ class CiravaApi:
             self.store.upsert(record)
         if self.start_workers:
             kind, args = spec
-            target = self._upload_worker if kind == "upload" else self._download_worker
+            target = self._upload_worker if kind in {"upload", "photos_upload"} else self._download_worker
             threading.Thread(target=target, args=(record, *args), daemon=True).start()
         return record.to_dict()
 
@@ -531,7 +767,7 @@ class CiravaApi:
             raise ValueError(f"Cannot restart transfer in state {record.status.value}")
         spec = self._worker_specs.get(transfer_id)
         if not spec:
-            spec = ("upload", (64 * 1024 * 1024,)) if record.direction == "upload" else ("download", (64 * 1024 * 1024, 4, None))
+            spec = (("photos_upload" if record.destination == "google_photos" else "upload"), (64 * 1024 * 1024,)) if record.direction == "upload" else ("download", (64 * 1024 * 1024, 4, None))
             self._worker_specs[transfer_id] = spec
         with self._control_lock:
             self._controls[transfer_id] = {"stop": threading.Event(), "action": "run"}
@@ -541,7 +777,7 @@ class CiravaApi:
         self.store.upsert(record)
         if self.start_workers:
             kind, args = spec
-            target = self._upload_worker if kind == "upload" else self._download_worker
+            target = self._upload_worker if kind in {"upload", "photos_upload"} else self._download_worker
             threading.Thread(target=target, args=(record, *args), daemon=True).start()
         return record.to_dict()
 
@@ -554,7 +790,7 @@ class CiravaApi:
         with self._control_lock:
             return str(self._controls.get(transfer_id, {}).get("action", "cancel"))
 
-    def _ensure_drive_path(self, client: DriveApiClient, parent_id: str, relative_path: str | None) -> str:
+    def _ensure_drive_path(self, client: DriveApiClient, parent_id: str, relative_path: str | None, shared_drive_id: str | None = None) -> str:
         parent = parent_id
         if not relative_path:
             return parent
@@ -564,8 +800,8 @@ class CiravaApi:
                     continue
                 key = (parent, folder_name)
                 if key not in self._folder_cache:
-                    existing = client.find_folder(folder_name, parent)
-                    self._folder_cache[key] = existing or client.create_folder(folder_name, parent)
+                    existing = client.find_folder(folder_name, parent, shared_drive_id=shared_drive_id) if shared_drive_id else client.find_folder(folder_name, parent)
+                    self._folder_cache[key] = existing or (client.create_folder(folder_name, parent, shared_drive_id=shared_drive_id) if shared_drive_id else client.create_folder(folder_name, parent))
                 parent = self._folder_cache[key]
         return parent
 
@@ -746,8 +982,11 @@ class CiravaApi:
             self.store.upsert(record)
             if not self._should_continue(record.id):
                 raise TransferStopped()
+            if record.destination == "google_photos":
+                self._photos_upload_worker_impl(record, chunk_size)
+                return
             client = self._drive()
-            parent_id = self._ensure_drive_path(client, record.drive_parent_id or "root", record.relative_path)
+            parent_id = self._ensure_drive_path(client, record.drive_parent_id or "root", record.relative_path, record.destination_drive_id)
             telemetry = TransferTelemetry()
             mime_type = mimetypes.guess_type(record.filename)[0] or "application/octet-stream"
             def retry_observed(attempt: int, delay: float, error: Exception) -> None:
@@ -924,6 +1163,132 @@ class CiravaApi:
                 self._drive_client = DriveApiClient(token_manager.access_token)
                 self._drive_client_config = config
             return self._drive_client
+
+    def _photos(self) -> GooglePhotosApiClient:
+        tokens = self.tokens.load()
+        if not tokens or not tokens.get("access_token"):
+            raise RuntimeError("Sign in with Google before uploading to Google Photos")
+        if self._photos_client is None:
+            client_id = self._setting("client_id") or ""
+            client_secret = os.environ.get("CIRAVA_GOOGLE_CLIENT_SECRET", "") or self._stored_client_secret()
+            manager = TokenManager(self.tokens, client_id=client_id, client_secret=client_secret)
+            self._photos_client = GooglePhotosApiClient(manager.access_token)
+        return self._photos_client
+
+    def _photos_upload_worker_impl(self, record: TransferRecord, chunk_size: int) -> None:
+        client = self._photos()
+        source = Path(record.local_path)
+        if not source.is_file() or source.stat().st_size != record.size:
+            raise IOError("The selected media file changed before upload; select it again to avoid uploading partial data")
+        mime_type = mimetypes.guess_type(record.filename)[0] or "application/octet-stream"
+        telemetry = TransferTelemetry()
+        if not record.destination_item_token:
+            def retry_observed(attempt: int, delay: float, error: Exception) -> None:
+                self._record_retry(record, attempt, delay, error)
+
+            def progress(done: int, total: int, _attempt: int) -> None:
+                record.status = TransferStatus.TRANSFERRING
+                record.bytes_transferred = done
+                speed, average, peak = telemetry.observe(done)
+                record.speed_bps, record.average_speed_bps, record.peak_speed_bps = speed, average, peak
+                self.store.update_progress(record.id, bytes_transferred=done, speed_bps=speed, average_speed_bps=average, peak_speed_bps=peak)
+
+            def retry_delay(delay: float) -> None:
+                minimum = 30 if record.last_http_status == 429 else 0
+                deadline = time.monotonic() + max(delay, minimum)
+                while time.monotonic() < deadline:
+                    if not self._should_continue(record.id):
+                        raise TransferStopped()
+                    time.sleep(min(0.25, deadline - time.monotonic()))
+
+            for session_attempt in range(1, 4):
+                if not record.upload_session_url:
+                    session, granularity = client.create_upload_session(mime_type, record.size)
+                    record.upload_session_url = session
+                    record.upload_chunk_granularity = granularity
+                    record.bytes_transferred = 0
+                else:
+                    session = record.upload_session_url
+                    granularity = record.upload_chunk_granularity or 256 * 1024
+                    try:
+                        record.bytes_transferred = client.query_upload_offset(session)
+                    except GooglePhotosApiError as error:
+                        if error.status not in {404, 410}:
+                            raise
+                        session, granularity = client.create_upload_session(mime_type, record.size)
+                        record.upload_session_url = session
+                        record.upload_chunk_granularity = granularity
+                        record.bytes_transferred = 0
+                    if record.bytes_transferred >= record.size:
+                        # Google may acknowledge the final bytes even when its
+                        # response containing the upload token was lost.
+                        session, granularity = client.create_upload_session(mime_type, record.size)
+                        record.upload_session_url = session
+                        record.upload_chunk_granularity = granularity
+                        record.bytes_transferred = 0
+                if granularity <= 0:
+                    raise GooglePhotosApiError(502, "Google Photos returned an invalid upload chunk size")
+                chunk_size = max(granularity, (chunk_size // granularity) * granularity)
+                self.store.upsert(record)
+
+                def put_chunk(data: bytes, start: int, end: int, _total: int) -> int:
+                    self._throttle(len(data))
+                    final = end + 1 == record.size
+                    try:
+                        _, response_headers, response = client.upload_chunk(session, data, start, final=final)
+                        if final:
+                            token = response.decode(errors="strict").strip()
+                            if not token:
+                                raise GooglePhotosApiError(502, "Google Photos finished uploading without returning an upload token")
+                            record.destination_item_token = token
+                            self.store.upsert(record)
+                        received = response_headers.get("X-Goog-Upload-Size-Received") or response_headers.get("x-goog-upload-size-received")
+                        return int(received) if received else end + 1
+                    except GooglePhotosApiError as error:
+                        if error.status not in {408, 429, 500, 502, 503, 504}:
+                            raise
+                        acknowledged = client.query_upload_offset(session)
+                        if acknowledged > start:
+                            return acknowledged
+                        raise
+                    except (OSError, TimeoutError, ConnectionError):
+                        acknowledged = client.query_upload_offset(session)
+                        if acknowledged > start:
+                            return acknowledged
+                        raise
+
+                record.status = TransferStatus.TRANSFERRING
+                self.store.upsert(record)
+                ResumableUploader(
+                    retry_policy=RetryPolicy(), sleep=retry_delay,
+                    should_continue=lambda: self._should_continue(record.id),
+                    retryable_error=lambda error: self._is_retryable_error(error) or isinstance(error, GooglePhotosApiError) and error.status in {408, 429, 500, 502, 503, 504},
+                    retry_observed=retry_observed,
+                ).upload(source, chunk_size, put_chunk, progress, initial_offset=record.bytes_transferred)
+                if record.destination_item_token:
+                    break
+                if record.bytes_transferred < record.size:
+                    raise GooglePhotosApiError(502, "Google Photos stopped before returning an upload token")
+                if session_attempt == 3:
+                    raise GooglePhotosApiError(502, "Google Photos did not return an upload token after restarting the final chunk")
+                # Force the next pass to start a clean session after an
+                # acknowledged final chunk whose token response was lost.
+                record.upload_session_url = None
+                record.upload_chunk_granularity = None
+                record.bytes_transferred = 0
+                self.store.upsert(record)
+        if not self._should_continue(record.id):
+            raise TransferStopped()
+        result = client.create_media_items([(record.filename, record.destination_item_token)], album_id=record.destination_album_id)
+        if not result or not (result[0].get("mediaItem") or {}).get("id"):
+            raise GooglePhotosApiError(502, "Google Photos did not confirm this media item")
+        record.destination_item_token = None
+        record.upload_session_url = None
+        record.upload_chunk_granularity = None
+        record.bytes_transferred = record.size
+        record.status = TransferStatus.COMPLETED
+        self.store.upsert(record)
+        self._notify_transfer(record)
 
     def _stored_client_secret(self) -> str:
         try:

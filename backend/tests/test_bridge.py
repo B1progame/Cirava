@@ -12,9 +12,251 @@ from main import CiravaApi
 from cirava_backend.drive_api import DriveApiError
 from cirava_backend.notifications import TrayNotifier
 from cirava_backend.updater import UpdateManifest
+from cirava_backend.models import TransferRecord
 
 
 class BridgeTests(unittest.TestCase):
+    def test_open_google_photos_uses_system_browser_and_rejects_non_photos_urls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+            with patch("main.webbrowser.open", return_value=True) as open_browser:
+                result = api.open_google_photos("https://photos.google.com/")
+
+            self.assertEqual(result, {"url": "https://photos.google.com/"})
+            open_browser.assert_called_once()
+            self.assertEqual(open_browser.call_args.args[0], "https://photos.google.com/")
+            with self.assertRaisesRegex(ValueError, "Google Photos"):
+                api.open_google_photos("https://example.com/")
+
+    def test_google_photos_local_gallery_returns_small_image_preview_and_video_metadata(self):
+        from io import BytesIO
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as directory:
+            photo = Path(directory) / "photo.png"
+            image = Image.new("RGB", (1200, 800), color=(40, 120, 180))
+            image.save(photo)
+            video = Path(directory) / "clip.mp4"
+            video.write_bytes(b"video")
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+
+            previews = api.get_google_photos_local_previews([str(photo), str(video)])
+
+            self.assertEqual([item["kind"] for item in previews], ["photo", "video"])
+            self.assertTrue(previews[0]["preview"].startswith("data:image/jpeg;base64,"))
+            self.assertIsNone(previews[1]["preview"])
+            data = previews[0]["preview"].split(",", 1)[1]
+            with Image.open(BytesIO(base64.b64decode(data))) as thumbnail:
+                self.assertLessEqual(max(thumbnail.size), 360)
+
+    def test_drive_gallery_downloads_sanitize_names_and_skip_google_native_documents(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "downloads"
+            destination.mkdir()
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+
+            result = api.create_drive_gallery_downloads([
+                {"id": "drive-image", "name": "../summer.jpg", "mimeType": "image/jpeg", "size": "12", "md5Checksum": "hash"},
+                {"id": "drive-doc", "name": "Notes", "mimeType": "application/vnd.google-apps.document"},
+            ], str(destination), start_immediately=False)
+
+            self.assertEqual(len(result["records"]), 1)
+            self.assertEqual(result["skipped"], 1)
+            record = result["records"][0]
+            self.assertEqual(Path(record["local_path"]).parent.resolve(), destination.resolve())
+            self.assertNotIn("/", Path(record["local_path"]).name)
+            self.assertNotIn("\\", Path(record["local_path"]).name)
+            self.assertTrue(record["deferred"])
+
+    def test_google_photos_picker_selection_exposes_all_items_in_bounded_pages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+            api._photos_picker_sessions.add("picker-session")
+            media_items = [{"id": f"photo-{index}", "mediaFile": {"filename": f"photo-{index}.jpg", "mimeType": "image/jpeg", "mediaFileMetadata": {"creationTime": "2025-01-01T00:00:00Z"}}} for index in range(201)]
+
+            class Photos:
+                def get_picker_session(self, _session_id): return {"mediaItemsSet": True}
+                def list_picker_media_items(self, _session_id): return media_items
+                def delete_picker_session(self, _session_id): return None
+                def fetch_picker_thumbnail(self, *_args, **_kwargs): raise AssertionError("No thumbnail URL was supplied")
+
+            api._photos = lambda: Photos()
+            first = api.get_google_photos_picker_selection("picker-session")
+            second = api.get_google_photos_picker_page(first["collection_id"], first["next_offset"], 100)
+            third = api.get_google_photos_picker_page(first["collection_id"], second["next_offset"], 100)
+
+            self.assertEqual(len(first["items"]), 100)
+            self.assertEqual(len(second["items"]), 100)
+            self.assertEqual(len(third["items"]), 1)
+            self.assertEqual(first["total"], 201)
+            self.assertIsNone(third["next_offset"])
+            with self.assertRaisesRegex(ValueError, "expired"):
+                api.get_google_photos_picker_page(first["collection_id"], 0)
+
+    def test_photo_upload_batch_creates_deferred_records_for_media_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "photo.jpg"
+            source.write_bytes(b"photo bytes")
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+
+            records = api.create_google_photos_upload_batch([str(source)], start_immediately=False)
+
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["destination"], "google_photos")
+            self.assertTrue(records[0]["deferred"])
+
+    def test_photo_album_upload_creates_one_album_and_persists_its_destination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "photo.jpg"
+            source.write_bytes(b"photo bytes")
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+            created_titles = []
+
+            class Photos:
+                def create_album(self, title):
+                    created_titles.append(title)
+                    return {"id": "album-shared-later", "title": title}
+
+            api._photos = lambda: Photos()
+            records = api.create_google_photos_upload_batch([str(source)], start_immediately=False, album_title="Summer trip")
+
+            self.assertEqual(created_titles, ["Summer trip"])
+            self.assertEqual(records[0]["destination_album_id"], "album-shared-later")
+            self.assertEqual(records[0]["destination_album_title"], "Summer trip")
+            self.assertEqual(api.store.get(records[0]["id"]).destination_album_id, "album-shared-later")
+
+    def test_photo_worker_adds_uploaded_media_to_its_persisted_album(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "photo.jpg"
+            source.write_bytes(b"image bytes")
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+            album_destinations = []
+
+            class Photos:
+                def create_album(self, title): return {"id": "album-worker", "title": title}
+                def create_upload_session(self, mime_type, size): return "https://photos.example/session", 256 * 1024
+                def upload_chunk(self, session, data, offset, *, final): return 200, {}, b"upload-token"
+                def create_media_items(self, items, *, album_id=None):
+                    album_destinations.append((items, album_id))
+                    return [{"status": {"message": "Success"}, "mediaItem": {"id": "photo-1"}}]
+
+            api._photos = lambda: Photos()
+            record = api.create_google_photos_upload_batch([str(source)], start_immediately=False, album_title="Summer trip")[0]
+            api.start_transfer(record["id"])
+            api._upload_worker(api.store.get(record["id"]), 256 * 1024)
+
+            self.assertEqual(album_destinations, [([("photo.jpg", "upload-token")], "album-worker")])
+
+    def test_photo_upload_batch_rejects_empty_media_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "empty.jpg"
+            source.write_bytes(b"")
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+
+            with self.assertRaisesRegex(ValueError, "empty"):
+                api.create_google_photos_upload_batch([str(source)], start_immediately=False)
+
+    def test_upload_destination_drive_is_persisted_per_transfer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "payload.bin"
+            source.write_bytes(b"payload")
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+
+            record = api.create_upload(str(source), destination_drive_id="team-drive-1")
+
+            self.assertEqual(record["destination_drive_id"], "team-drive-1")
+            self.assertEqual(record["drive_parent_id"], "team-drive-1")
+
+    def test_upload_batch_preserves_dotted_subfolder_names_for_shared_drive_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "selection"
+            nested = root / "release.v1" / "payload.bin"
+            nested.parent.mkdir(parents=True)
+            nested.write_bytes(b"payload")
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+
+            [record] = api.create_upload_batch([str(root)], destination_drive_id="team-drive-1", start_immediately=False)
+
+            self.assertEqual(record["relative_path"], "release.v1")
+            self.assertEqual(record["drive_parent_id"], "team-drive-1")
+
+    def test_photo_worker_completes_media_item_through_resumable_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "photo.jpg"
+            source.write_bytes(b"image bytes")
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+            calls = []
+
+            class Photos:
+                def create_upload_session(self, mime_type, size):
+                    calls.append(("session", mime_type, size))
+                    return "https://photos.example/session", 256 * 1024
+
+                def upload_chunk(self, session, data, offset, *, final):
+                    calls.append(("chunk", session, data, offset, final))
+                    return 200, {}, b"upload-token"
+
+                def create_media_items(self, items, *, album_id=None):
+                    calls.append(("create", items, album_id))
+                    return [{"status": {"message": "Success"}, "mediaItem": {"id": "photo-1"}}]
+
+            api._photos = lambda: Photos()
+            record = api.create_google_photos_upload_batch([str(source)], start_immediately=False)[0]
+
+            api.start_transfer(record["id"])
+            api._upload_worker(api.store.get(record["id"]), 256 * 1024)
+            finished = api.store.get(record["id"])
+
+            self.assertEqual(finished.status.value, "completed")
+            self.assertEqual(finished.bytes_transferred, source.stat().st_size)
+            self.assertEqual(calls[-1], ("create", [("photo.jpg", "upload-token")], None))
+
+    def test_photo_worker_restarts_if_final_chunk_was_accepted_but_token_response_was_lost(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "photo.jpg"
+            source.write_bytes(b"image bytes")
+            api = CiravaApi(Path(directory) / "app", start_workers=False)
+            sessions = []
+            created = []
+
+            class Photos:
+                def create_upload_session(self, mime_type, size):
+                    session = f"https://photos.example/session-{len(sessions) + 1}"
+                    sessions.append(session)
+                    return session, 256 * 1024
+
+                def upload_chunk(self, session, data, offset, *, final):
+                    if session == sessions[0]:
+                        raise ConnectionError("final response lost after Google received bytes")
+                    return 200, {}, b"recovered-upload-token"
+
+                def query_upload_offset(self, session):
+                    return source.stat().st_size
+
+                def create_media_items(self, items, *, album_id=None):
+                    created.append((items, album_id))
+                    return [{"status": {"message": "Success"}, "mediaItem": {"id": "photo-2"}}]
+
+            api._photos = lambda: Photos()
+            record = api.create_google_photos_upload_batch([str(source)], start_immediately=False)[0]
+            api.start_transfer(record["id"])
+            api._upload_worker(api.store.get(record["id"]), 256 * 1024)
+
+            finished = api.store.get(record["id"])
+            self.assertEqual(finished.status.value, "completed")
+            self.assertEqual(len(sessions), 2)
+            self.assertEqual(created, [([("photo.jpg", "recovered-upload-token")], None)])
+
+    def test_photo_transfer_bridge_data_never_exposes_resumable_capabilities(self):
+        record = TransferRecord(
+            id="private-photo", direction="upload", filename="private.jpg", local_path="private.jpg", size=12,
+            destination="google_photos", upload_session_url="https://photos.example/capability", destination_item_token="private-token",
+        )
+
+        public = record.to_dict()
+
+        self.assertNotIn("upload_session_url", public)
+        self.assertNotIn("destination_item_token", public)
+
     def test_drive_client_is_reused_across_transfer_requests(self):
         with tempfile.TemporaryDirectory() as directory:
             api = CiravaApi(Path(directory), start_workers=False)
@@ -170,7 +412,7 @@ class BridgeTests(unittest.TestCase):
             api = CiravaApi(Path(directory) / "app", start_workers=False)
             api.tokens.save({"access_token": "old-token", "refresh_token": "old-refresh"})
             self.assertFalse(api.boot_state()["authenticated"])
-            api.tokens.save({"access_token": "new-token", "refresh_token": "new-refresh", "cirava_scope_version": 2})
+            api.tokens.save({"access_token": "new-token", "refresh_token": "new-refresh", "cirava_scope_version": 4})
             self.assertTrue(api.boot_state()["authenticated"])
 
     def test_google_reauthorization_saves_full_drive_scope_marker(self):
@@ -180,7 +422,7 @@ class BridgeTests(unittest.TestCase):
             with patch("main.OAuthSession") as oauth:
                 oauth.return_value.login.return_value = {"access_token": "new-token", "refresh_token": "new-refresh"}
                 self.assertTrue(api.begin_google_login()["authenticated"])
-            self.assertEqual(api.tokens.load()["cirava_scope_version"], 2)
+            self.assertEqual(api.tokens.load()["cirava_scope_version"], 4)
 
     def test_staging_and_auto_update_keep_google_login_and_client_configuration(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -188,7 +430,7 @@ class BridgeTests(unittest.TestCase):
             api = CiravaApi(data_dir, start_workers=False)
             client_id = "1234567890-cirava.apps.googleusercontent.com"
             api.save_google_configuration(client_id)
-            api.tokens.save({"access_token": "access", "refresh_token": "refresh", "cirava_scope_version": 2})
+            api.tokens.save({"access_token": "access", "refresh_token": "refresh", "cirava_scope_version": 4})
             staged = data_dir / "updates" / "verified.exe"
             staged.parent.mkdir(parents=True)
             staged.write_bytes(b"verified app")

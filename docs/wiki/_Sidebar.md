@@ -4,12 +4,13 @@
 - [Get started](Getting-Started)
 - [Google sign-in](Google-OAuth-Setup)
 - [Upload](Uploading)
+- [Google Photos](Google-Photos)
 - [Download](Downloading)
 - [Trash and storage](Trash)
 - [Transfers and tray](Transfers)
 - [Troubleshooting](Troubleshooting)
 - [Privacy and security](Privacy-and-security)
-- [Release notes: 1.2.5](v1.2.5)
+- [Release notes: 1.3.0](v1.3.0)
 
 ### Technical notes
 

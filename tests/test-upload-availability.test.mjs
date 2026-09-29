@@ -15,7 +15,7 @@ test('Cobalt option is enabled only by the saved Test data setting', () => {
 
 test('both upload planners show the Cobalt choice only when Test data is enabled', () => {
   assert.match(source, /testButton\.hidden\s*=\s*!testDataEnabled/);
-  assert.match(source, /testChoice\.hidden\s*=\s*!testDataEnabled/);
+  assert.match(source, /testChoice\.hidden\s*=\s*!testDataEnabled\s*\|\|\s*isPhotosUpload/);
   assert.match(source, /cobaltCard\.hidden\s*=\s*!testDataEnabled/);
   assert.match(source, /if \(!testDataEnabled && state\.testUpload\)/);
   assert.match(source, /Enable Test data in Settings to show the Cobalt test-file option/);

@@ -145,6 +145,14 @@
 .cirava-upload-destination-step { min-height: 280px; }
 .cirava-upload-folders { max-height: 190px; margin-top: 10px; padding: 10px; border-color: rgba(128, 154, 204, .25); border-radius: 14px; background: rgba(255,255,255,.58); }
 .cirava-upload-destination-step .cirava-upload-folders:not([hidden]) { flex: 1; min-height: 190px; max-height: 320px; }
+.cirava-upload-destination-step { min-height: 0; overflow: hidden; }
+.cirava-upload-destination-step .cirava-upload-folders:not([hidden]) { min-height: 0; max-height: none; overflow: auto; }
+/* Photos adds album controls below the route note. Keep that destination
+   panel content-sized and let the planner sheet handle scrolling instead of
+   clipping the album name field inside the fixed-height grid row. */
+.cirava-upload-destination-step.photos-upload-destination { display: block !important; min-height: max-content; overflow: visible; }
+.photos-upload-destination .cirava-upload-route { min-height: 72px; margin-top: 8px; padding: 8px 4px; }
+.photos-upload-destination .cirava-upload-route-note { margin-top: 0; }
 .cirava-upload-folder-current { background: rgba(232, 240, 255, .76); }
 .cirava-upload-route { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 102px; margin-top: auto; padding: 16px 12px 7px; }
 .cirava-upload-route-node { display: flex; align-items: center; gap: 9px; min-width: 0; }

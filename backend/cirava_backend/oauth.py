@@ -22,6 +22,9 @@ from typing import Callable
 AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
+PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary.appendonly"
+PHOTOS_PICKER_SCOPE = "https://www.googleapis.com/auth/photospicker.mediaitems.readonly"
+DEFAULT_GOOGLE_SCOPES = f"{DRIVE_SCOPE} {PHOTOS_SCOPE} {PHOTOS_PICKER_SCOPE}"
 
 
 def oauth_completion_page() -> bytes:
@@ -48,7 +51,7 @@ class OAuthConfig:
     # This avoids conflicts with other local apps while keeping the callback
     # valid for Google's installed-app OAuth flow.
     redirect_port: int = 0
-    scope: str = DRIVE_SCOPE
+    scope: str = DEFAULT_GOOGLE_SCOPES
 
 
 class OAuthSession:

@@ -29,7 +29,13 @@ class TransferRecord:
     status: TransferStatus = TransferStatus.QUEUED
     drive_file_id: str | None = None
     drive_parent_id: str | None = None
+    destination: str = "google_drive"
+    destination_drive_id: str | None = None
+    destination_album_id: str | None = None
+    destination_album_title: str | None = None
+    destination_item_token: str | None = None
     upload_session_url: str | None = None
+    upload_chunk_granularity: int | None = None
     relative_path: str | None = None
     bytes_transferred: int = 0
     speed_bps: int = 0
@@ -62,4 +68,9 @@ class TransferRecord:
         data = self.__dict__.copy()
         data["status"] = self.status.value
         data["progress"] = self.progress
+        if self.destination == "google_photos":
+            # Photos upload URLs and tokens are resumable-upload capabilities.
+            # Keep them in the local transfer store, never in renderer responses.
+            data.pop("upload_session_url", None)
+            data.pop("destination_item_token", None)
         return data

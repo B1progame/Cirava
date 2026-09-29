@@ -159,10 +159,50 @@ class GoogleProtocolTests(unittest.TestCase):
         query = parse_qs(urlparse(url).query)
         self.assertEqual(query["client_id"], ["desktop-client"])
         self.assertEqual(query["access_type"], ["offline"])
-        self.assertEqual(query["scope"], ["https://www.googleapis.com/auth/drive"])
+        self.assertEqual(query["scope"], ["https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/photoslibrary.appendonly https://www.googleapis.com/auth/photospicker.mediaitems.readonly"])
         self.assertEqual(query["code_challenge_method"], ["S256"])
         self.assertTrue(query["code_challenge"][0])
         self.assertTrue(query["state"][0])
+
+    def test_drive_gallery_queries_across_drives_and_supports_pagination(self):
+        client = DriveApiClient("token")
+        captured = []
+        client._request = lambda url, **kwargs: captured.append(url) or (200, {}, b'{"files":[{"id":"image-1"}],"nextPageToken":"next"}')
+
+        client.list_all_shared_drives = lambda: []
+        result = client.list_gallery_files(query="holiday", pictures_only=True, page_size=75)
+
+        params = parse_qs(urlparse(captured[0]).query)
+        self.assertTrue(result["nextPageToken"].startswith("cirava:"))
+        self.assertEqual(params["corpora"], ["user"])
+        self.assertEqual(params["supportsAllDrives"], ["true"])
+        self.assertEqual(params["includeItemsFromAllDrives"], ["true"])
+        self.assertNotIn("pageToken", params)
+        self.assertEqual(params["pageSize"], ["75"])
+        self.assertIn("mimeType contains 'image/'", params["q"][0])
+
+    def test_drive_gallery_cursor_continues_in_a_specific_shared_drive(self):
+        client = DriveApiClient("token")
+        client.list_all_shared_drives = lambda: [{"id": "team-1"}]
+        calls = []
+        pages = [
+            b'{"files":[{"id":"my-file"}],"nextPageToken":"my-next"}',
+            b'{"files":[{"id":"my-file-2"}]}',
+            b'{"files":[{"id":"team-file","driveId":"team-1"}]}',
+        ]
+        client._request = lambda url, **kwargs: calls.append(parse_qs(urlparse(url).query)) or (200, {}, pages.pop(0))
+
+        first = client.list_gallery_files(page_size=1)
+        second = client.list_gallery_files(page_token=first["nextPageToken"], page_size=1)
+        third = client.list_gallery_files(page_token=second["nextPageToken"], page_size=1)
+
+        self.assertEqual(first["files"][0]["id"], "my-file")
+        self.assertEqual(second["files"][0]["id"], "my-file-2")
+        self.assertEqual(third["files"][0]["driveId"], "team-1")
+        self.assertEqual(calls[0]["corpora"], ["user"])
+        self.assertEqual(calls[1]["pageToken"], ["my-next"])
+        self.assertEqual(calls[2]["corpora"], ["drive"])
+        self.assertEqual(calls[2]["driveId"], ["team-1"])
 
     def test_token_store_round_trips_without_exposing_raw_json_api(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -301,6 +341,39 @@ class GoogleProtocolTests(unittest.TestCase):
         self.assertEqual(query["corpora"], ["drive"])
         self.assertEqual(query["driveId"], ["drive-123"])
         self.assertEqual(query["includeItemsFromAllDrives"], ["true"])
+
+    def test_resumable_upload_session_declares_shared_drive_support(self):
+        client = DriveApiClient("token")
+        captured = []
+        client._request = lambda url, **kwargs: captured.append((url, kwargs)) or (200, {"Location": "https://upload.example/session"}, b"")
+
+        self.assertEqual(client.create_upload_session({"name": "payload.bin"}, 7, "shared-folder-1"), "https://upload.example/session")
+
+        query = parse_qs(urlparse(captured[0][0]).query)
+        self.assertEqual(query["supportsAllDrives"], ["true"])
+        self.assertEqual(json.loads(captured[0][1]["body"])["parents"], ["shared-folder-1"])
+
+    def test_shared_drive_listing_follows_every_page(self):
+        client = DriveApiClient("token")
+        captured = []
+        pages = [b'{"nextPageToken":"next","drives":[{"id":"drive-1","name":"Team"}]}', b'{"drives":[{"id":"drive-2","name":"Archive"}]}']
+        client._request = lambda url, **kwargs: captured.append(url) or (200, {}, pages[len(captured) - 1])
+
+        drives = client.list_all_shared_drives()
+
+        self.assertEqual([item["id"] for item in drives], ["drive-1", "drive-2"])
+        self.assertEqual(parse_qs(urlparse(captured[1]).query)["pageToken"], ["next"])
+
+    def test_shared_drive_link_resolves_to_its_drive_and_folder_context(self):
+        client = DriveApiClient("token")
+        captured = []
+        client._request = lambda url, **kwargs: captured.append(url) or (200, {}, b'{"id":"folder-1","name":"Shared folder","mimeType":"application/vnd.google-apps.folder","driveId":"drive-1","parents":["parent-1"]}')
+
+        destination = client.resolve_shared_drive_link("https://drive.google.com/drive/folders/folder-1")
+
+        self.assertEqual(destination, {"drive_id": "drive-1", "parent_id": "folder-1", "name": "Shared folder"})
+        query = parse_qs(urlparse(captured[0]).query)
+        self.assertEqual(query["supportsAllDrives"], ["true"])
 
     def test_folder_name_resolution_uses_drive_search_and_pages_results(self):
         client = DriveApiClient("token")

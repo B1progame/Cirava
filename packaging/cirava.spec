@@ -7,7 +7,7 @@ a = Analysis(
     [str(root / "backend" / "main.py")],
     pathex=[str(root / "backend")],
     datas=[(str(root / "dist"), "dist"), (str(root / "packaging" / "cirava.ico"), ".")],
-    hiddenimports=["webview.platforms.edgechromium", "win32api", "win32con", "win32event", "winerror", "win32gui"],
+    hiddenimports=["webview.platforms.edgechromium", "win32api", "win32con", "win32event", "winerror", "win32gui", "PIL.Image", "PIL.ImageOps", "PIL.JpegImagePlugin"],
     name="Cirava",
 )
 pyz = PYZ(a.pure)

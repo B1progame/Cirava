@@ -6,6 +6,8 @@ import './workflows/scan-repeat/scan-repeat.css';
 import './transfer-journey.css';
 import './drive-multiselect.css';
 import './drive-create-dialog.css';
+import './shared-drive-controls.css';
+import './google-photos-page.css';
 import './history-live.css';
 import './transfer-recovery.css';
 import './offline-recovery.css';
@@ -13,7 +15,9 @@ import { startOfflineRecovery } from './offline-recovery.js';
 import { clearCachedClientIdWhenUnconfigured } from './login-credentials.js';
 import { bindHoldToConfirm, clickAfterHold } from './hold-to-confirm.js';
 import { renderDriveFolderPicker } from './drive-folder-picker.js';
-import { createUploadBatch } from './upload-batch.js';
+import { installSharedDriveControls } from './shared-drive-controls.js';
+import { installGooglePhotosPage } from './google-photos-page.js';
+import { createGooglePhotosUploadBatch, createUploadBatch } from './upload-batch.js';
 import { createArchiveUploadFlow, formatArchiveSavings } from './archive-compression.js';
 import { renderArchiveCompressionSetting } from './archive-settings-view.js';
 import { renderUploadDestinationPanel } from './upload-destination-view.js';
@@ -402,7 +406,9 @@ function ciravaUploadPlannerControls() {
   if (!list || !summary) return;
 
   let destinationId = 'root';
+  let destinationDriveId: string | null = null;
   let destinationName = 'My Drive / Workspace';
+  let destinationRootName = 'My Drive / Workspace';
   let testUpload = false;
   const cobaltCard = planner.querySelector<HTMLElement>('.planner-file');
   const sampleTitle = planner.querySelector<HTMLElement>('.planner-file strong');
@@ -551,7 +557,7 @@ function ciravaUploadPlannerControls() {
     startButton.disabled = true;
     try {
       const created = await startUploadWithFeedback({
-        createBatch: () => createUploadBatch({ api, paths: compressChoice.checked ? archiveFlow.uploadPaths(selectedPaths) : selectedPaths, destinationId, testUpload }),
+         createBatch: () => createUploadBatch({ api, paths: compressChoice.checked ? archiveFlow.uploadPaths(selectedPaths) : selectedPaths, destinationId, destinationDriveId, testUpload }),
         navigate: () => {
           const opened = ciravaNavigateToTransfers();
           if (opened) close();
@@ -574,7 +580,7 @@ function ciravaUploadPlannerControls() {
     queueButton.disabled = true;
     try {
       if (compressChoice.checked && !archiveFlow.getPrepared(selectedPaths)) throw new Error('Preview and compress the selected files before adding them to the queue.');
-      const records = await createUploadBatch({ api, paths: compressChoice.checked ? archiveFlow.uploadPaths(selectedPaths) : selectedPaths, destinationId, testUpload, startImmediately: false });
+       const records = await createUploadBatch({ api, paths: compressChoice.checked ? archiveFlow.uploadPaths(selectedPaths) : selectedPaths, destinationId, destinationDriveId, testUpload, startImmediately: false });
       if (!Array.isArray(records) || !records.length) throw new Error('No upload items were added to the queue.');
       setStatus(`${records.length} upload${records.length === 1 ? '' : 's'} waiting in Transfers. Start them there when ready.`);
       const opened = ciravaNavigateToTransfers();
@@ -591,20 +597,23 @@ function ciravaUploadPlannerControls() {
     destinationPicker.hidden = false;
     destinationPicker.innerHTML = '<span class="cirava-upload-folder-loading">Loading Drive folders…</span>';
     try {
-      const result = await api.list_drive_files(parentId);
+      const result = destinationDriveId && api.list_shared_drive_files
+        ? await api.list_shared_drive_files(parentId, destinationDriveId)
+        : await (api.list_my_drive_files || api.list_drive_files)(parentId);
       const items = (result?.files || []).filter((item: any) => item.mimeType === 'application/vnd.google-apps.folder');
-      destinationPicker.innerHTML = renderDriveFolderPicker({ parentId, currentLabel: parentId === 'root' ? 'My Drive / Workspace' : destinationName, folders: items });
-      if (parentId !== 'root') {
+      const rootId = destinationDriveId || 'root';
+      destinationPicker.innerHTML = renderDriveFolderPicker({ parentId, currentLabel: parentId === rootId ? destinationRootName : destinationName, folders: items });
+      if (parentId !== rootId) {
         const back = document.createElement('button');
         back.type = 'button';
         back.className = 'cirava-upload-folder-option planner-folder-back';
-        back.textContent = '‹ Back to My Drive';
-        back.addEventListener('click', () => { destinationId = 'root'; destinationName = 'My Drive / Workspace'; void loadFolders('root'); });
+        back.textContent = destinationDriveId ? '‹ Back to shared drive' : '‹ Back to My Drive';
+        back.addEventListener('click', () => { destinationId = rootId; destinationName = destinationRootName; void loadFolders(rootId); });
         destinationPicker.prepend(back);
       }
       destinationPicker.querySelector('[data-cirava-use-folder]')?.addEventListener('click', () => {
         destinationId = parentId;
-        destinationName = parentId === 'root' ? 'My Drive / Workspace' : destinationName;
+        destinationName = parentId === rootId ? destinationRootName : destinationName;
         const title = destination?.querySelector('strong');
         const subtitle = destination?.querySelector('small');
         if (title) title.textContent = destinationName;
@@ -622,6 +631,14 @@ function ciravaUploadPlannerControls() {
       setStatus(error instanceof Error ? error.message : 'Could not list Drive folders.', true);
     }
   };
+  installSharedDriveControls(controls, getApi, ({ driveId, parentId, name }) => {
+    destinationDriveId = driveId;
+    destinationId = parentId;
+    destinationName = destinationRootName = name;
+    const title = destination?.querySelector('strong');
+    if (title) title.textContent = name;
+    void loadFolders(parentId);
+  }, (message) => setStatus(message, true));
   destination?.addEventListener('click', () => void loadFolders(destinationId));
 }
 
@@ -629,23 +646,27 @@ function ciravaUploadPlannerControls() {
    queued them, which made destination selection impossible and surfaced a
    generic error when the native bridge was not ready. Keep the flow explicit:
    choose what, choose where, then commit the resumable batch. */
-type CiravaDirectUploadState = { paths: string[]; destinationId: string; destinationName: string; testUpload: boolean; summary?: { files: number; folders: number; bytes: number } };
+type CiravaDirectUploadState = { paths: string[]; destinationId: string; destinationName: string; destinationDriveId?: string | null; destinationRootName?: string; testUpload: boolean; target?: 'drive' | 'photos'; photosAlbumEnabled?: boolean; photosAlbumTitle?: string; summary?: { files: number; folders: number; bytes: number } };
 let ciravaDirectUploadState: CiravaDirectUploadState | null = null;
 
-function ciravaOpenDirectUploadPlanner() {
+function ciravaOpenDirectUploadPlanner(target: 'drive' | 'photos' = 'drive', initialPaths: string[] = []) {
   const existing = document.querySelector<HTMLElement>('[data-cirava-direct-upload]');
   if (existing) return;
+  const isPhotosUpload = target === 'photos';
   // Resolve the pywebview bridge at the moment each action runs. It is
   // injected asynchronously after the frontend shell has mounted.
   const getApi = () => (window as any).pywebview?.api;
-  const state: CiravaDirectUploadState = ciravaDirectUploadState || { paths: [], destinationId: 'root', destinationName: 'My Drive / Workspace', testUpload: false };
+  const state: CiravaDirectUploadState = ciravaDirectUploadState || { paths: [], destinationId: 'root', destinationName: 'My Drive / Workspace', destinationDriveId: null, destinationRootName: 'My Drive / Workspace', testUpload: false };
+  state.target = target;
+  if (isPhotosUpload) { state.destinationName = 'Google Photos library'; state.destinationDriveId = null; state.destinationRootName = 'Google Photos library'; state.testUpload = false; if (initialPaths.length) { state.paths = initialPaths; state.summary = undefined; } }
+  else if (state.destinationName === 'Google Photos library') { state.destinationId = 'root'; state.destinationName = state.destinationRootName = 'My Drive / Workspace'; }
   ciravaDirectUploadState = state;
   const backdrop = document.createElement('div');
   backdrop.className = 'cirava-direct-upload-backdrop';
   backdrop.dataset.ciravaDirectUpload = 'true';
   backdrop.innerHTML = `<section class="cirava-direct-upload-sheet" role="dialog" aria-modal="true" aria-labelledby="cirava-upload-title" tabindex="-1">
-    <header class="cirava-direct-upload-header"><div><span class="eyebrow">Upload planner <span class="cirava-upload-secure-label">· resumable by default</span></span><h2 id="cirava-upload-title">Choose what moves.</h2><p>Choose items from this device, pick their Drive destination, then hold to begin.</p></div><button type="button" class="icon-button cirava-direct-upload-close" data-cirava-upload-close aria-label="Close upload planner">×</button></header>
-    <div class="cirava-upload-stepper" aria-label="Upload steps"><span class="is-current"><b>01</b> Your files</span><i></i><span><b>02</b> Drive destination</span><i></i><span><b>03</b> Hold to upload</span></div>
+    <header class="cirava-direct-upload-header"><div><span class="eyebrow">${isPhotosUpload ? 'Google Photos upload' : 'Upload planner'} <span class="cirava-upload-secure-label">· resumable by default</span></span><h2 id="cirava-upload-title">Choose what moves.</h2><p>${isPhotosUpload ? 'Choose photos or videos from this device, review your selection, then hold to upload to Google Photos.' : 'Choose items from this device, pick their Drive destination, then hold to begin.'}</p></div><button type="button" class="icon-button cirava-direct-upload-close" data-cirava-upload-close aria-label="Close upload planner">×</button></header>
+    <div class="cirava-upload-stepper" aria-label="Upload steps"><span class="is-current"><b>01</b> Your files</span><i></i><span><b>02</b> ${isPhotosUpload ? 'Photos library' : 'Drive destination'}</span><i></i><span><b>03</b> Hold to upload</span></div>
     <div class="cirava-direct-upload-grid">
       <section class="cirava-upload-step cirava-upload-local-step"><div class="cirava-upload-step-head"><span class="mini-label">01 · FROM THIS DEVICE</span><span class="cirava-upload-step-caption">Local selection</span></div><div class="cirava-upload-selection" data-cirava-upload-selection data-kind="empty" data-has-selection="false"><span class="cirava-upload-selection-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14.5v3A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5v-3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cirava-upload-selection-copy"><strong data-cirava-selection-title>Choose files or a folder</strong><small data-cirava-selection-detail>Nothing starts until you hold Start upload.</small><span class="cirava-upload-selected-names" data-cirava-selection-names></span></span></div><div class="cirava-upload-actions"><button type="button" class="primary cirava-upload-pick-button" data-cirava-upload-files>Choose files</button><button type="button" class="secondary cirava-upload-pick-button" data-cirava-upload-folder>Choose folder</button></div><button type="button" class="cirava-upload-test-choice" data-cirava-upload-test><span class="cirava-upload-test-mark" aria-hidden="true">✳</span><span><strong>Use the Cobalt test file</strong><small>20 GB sparse test · created only after you hold upload</small></span><span class="cirava-upload-test-arrow" aria-hidden="true">›</span></button></section>
       <section class="cirava-upload-step cirava-upload-destination-step"><div class="cirava-upload-step-head"><span class="mini-label">02 · GOOGLE DRIVE</span><span class="cirava-upload-step-caption">Destination</span></div><button type="button" class="cirava-upload-destination" data-cirava-upload-destination><span class="cirava-upload-destination-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M3.5 7.25A2.25 2.25 0 0 1 5.75 5h4l2 2h6.5A2.25 2.25 0 0 1 20.5 9.25v8a2.25 2.25 0 0 1-2.25 2.25h-12A2.75 2.75 0 0 1 3.5 16.75z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M4 10h16" stroke="currentColor" stroke-width="1.4"/></svg></span><span class="cirava-upload-destination-copy"><small>Upload to</small><strong data-cirava-upload-destination-name>My Drive / Workspace</strong><span>Click to choose another folder</span></span><span class="cirava-upload-destination-arrow" aria-hidden="true">›</span></button><div class="cirava-upload-folders" data-cirava-upload-folders hidden></div><div class="cirava-upload-route" aria-label="Files move from this device to Google Drive"><div class="cirava-upload-route-node"><span class="cirava-upload-route-icon"><svg viewBox="0 0 24 24" fill="none"><rect x="5" y="3" width="14" height="18" rx="2.4" stroke="currentColor" stroke-width="1.6"/><path d="M9 7h6M9 11h6M9 15h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span><span><strong>This device</strong><small>Your files</small></span></div><div class="cirava-upload-route-line"><i></i></div><div class="cirava-upload-route-node"><span class="cirava-upload-route-icon is-cloud"><svg viewBox="0 0 24 24" fill="none"><path d="M7.2 18.2h10.1a3.7 3.7 0 0 0 .5-7.36A5.7 5.7 0 0 0 7.1 9.3a4.45 4.45 0 0 0 .1 8.9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 16V10m0 0-2.3 2.3M12 10l2.3 2.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span><strong>Google Drive</strong><small>Resumable transfer</small></span></div></div><p class="cirava-upload-route-note">If your connection drops, Cirava keeps your progress so you can resume.</p></section>
@@ -653,7 +674,15 @@ function ciravaOpenDirectUploadPlanner() {
     <footer class="cirava-upload-footer"><div class="cirava-upload-footer-copy"><span class="cirava-upload-status-dot" aria-hidden="true"></span><span><strong data-cirava-upload-footer-title>Nothing is queued yet</strong><small class="cirava-upload-status" data-cirava-upload-status aria-live="polite">Choose files and a destination to continue.</small></span></div><div class="cirava-upload-footer-action"><button type="button" class="secondary" data-cirava-upload-queue disabled>Add to queue</button><button type="button" class="primary" data-cirava-upload-start disabled><svg class="cirava-upload-start-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 15V4m0 0L8 8m4-4 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 13.5v3A2.5 2.5 0 0 0 8.5 19h7a2.5 2.5 0 0 0 2.5-2.5v-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span data-cirava-upload-start-label>Start upload</span></button><small>Hold to confirm start</small></div></footer>
   </section>`;
   const destinationStep = backdrop.querySelector('.cirava-upload-destination-step');
-  if (destinationStep) destinationStep.replaceWith(document.createRange().createContextualFragment(renderUploadDestinationPanel()));
+  if (destinationStep) destinationStep.replaceWith(document.createRange().createContextualFragment(isPhotosUpload
+    ? `<section class="cirava-upload-step cirava-upload-destination-step photos-upload-destination"><div class="cirava-upload-step-head"><span class="mini-label">02 · GOOGLE PHOTOS</span><span class="cirava-upload-step-caption">Destination</span></div><div class="cirava-upload-destination photos-upload-destination-card"><span class="cirava-upload-destination-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="4" width="17" height="16" rx="3" stroke="currentColor" stroke-width="1.6"/><circle cx="8.5" cy="9" r="1.4" fill="currentColor"/><path d="m5.5 17 4.1-4 2.8 2.3 2.8-2.8 3.3 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cirava-upload-destination-copy"><small>Upload to</small><strong>Google Photos library</strong><span>Original quality · resumable transfer</span></span><span class="cirava-upload-destination-arrow" aria-hidden="true">✓</span></div><div class="cirava-upload-route" aria-label="Photos move from this device to Google Photos"><div class="cirava-upload-route-node"><span class="cirava-upload-route-icon"><svg viewBox="0 0 24 24" fill="none"><rect x="5" y="3" width="14" height="18" rx="2.4" stroke="currentColor" stroke-width="1.6"/><path d="M9 7h6M9 11h6M9 15h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span><span><strong>This device</strong><small>Your photos and videos</small></span></div><div class="cirava-upload-route-line"><i></i></div><div class="cirava-upload-route-node"><span class="cirava-upload-route-icon is-cloud"><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="4" width="17" height="16" rx="3" stroke="currentColor" stroke-width="1.6"/><circle cx="8.5" cy="9" r="1.4" fill="currentColor"/><path d="m5.5 17 4.1-4 2.8 2.3 2.8-2.8 3.3 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span><strong>Google Photos</strong><small>Your library</small></span></div></div><p class="cirava-upload-route-note">Uploads are added to your Google Photos library and count toward your Google Account storage.</p></section>`
+    : renderUploadDestinationPanel()));
+  if (isPhotosUpload) {
+    const albumOptions = document.createElement('div');
+    albumOptions.className = 'photos-album-options';
+    albumOptions.innerHTML = '<label class="photos-album-choice"><input type="checkbox" data-cirava-photos-album-choice><span><strong>Create a new album</strong><small>Put this upload in its own Google Photos album.</small></span></label><label class="photos-album-name-field" data-cirava-photos-album-field hidden><span>Album name</span><input type="text" maxlength="500" placeholder="For example, Summer trip" data-cirava-photos-album-title></label><p class="photos-album-share-note" data-cirava-photos-album-share-note hidden>After it is created, open this album in Google Photos to share it with others.</p>';
+    backdrop.querySelector('.photos-upload-destination')?.append(albumOptions);
+  }
   document.body.appendChild(backdrop);
   const sheet = backdrop.querySelector<HTMLElement>('.cirava-direct-upload-sheet')!;
   const status = backdrop.querySelector<HTMLElement>('[data-cirava-upload-status]')!;
@@ -662,7 +691,7 @@ function ciravaOpenDirectUploadPlanner() {
   const queueUpload = backdrop.querySelector<HTMLButtonElement>('[data-cirava-upload-queue]')!;
   const testChoice = backdrop.querySelector<HTMLButtonElement>('[data-cirava-upload-test]')!;
   const testDataEnabled = isTestDataEnabled(window.localStorage);
-  testChoice.hidden = !testDataEnabled;
+  testChoice.hidden = !testDataEnabled || isPhotosUpload;
   if (!testDataEnabled && state.testUpload) {
     state.testUpload = false;
     state.paths = [];
@@ -686,7 +715,7 @@ function ciravaOpenDirectUploadPlanner() {
     refreshArchiveControls();
   }).catch(() => { archiveAvailable = false; refreshArchiveControls(); });
   const refreshArchiveControls = () => {
-    const show = Boolean(state.paths.length && !state.testUpload && archiveAvailable);
+    const show = Boolean(!isPhotosUpload && state.paths.length && !state.testUpload && archiveAvailable);
     archiveTools.hidden = !show;
     archiveTools.dataset.hasFiles = String(show);
     compressChoice.disabled = !show;
@@ -721,9 +750,36 @@ function ciravaOpenDirectUploadPlanner() {
   const selectionNames = backdrop.querySelector<HTMLElement>('[data-cirava-selection-names]')!;
   const footerTitle = backdrop.querySelector<HTMLElement>('[data-cirava-upload-footer-title]')!;
   const startLabel = backdrop.querySelector<HTMLElement>('[data-cirava-upload-start-label]')!;
+  const photosAlbumChoice = backdrop.querySelector<HTMLInputElement>('[data-cirava-photos-album-choice]');
+  const photosAlbumField = backdrop.querySelector<HTMLElement>('[data-cirava-photos-album-field]');
+  const photosAlbumName = backdrop.querySelector<HTMLInputElement>('[data-cirava-photos-album-title]');
+  const photosAlbumShareNote = backdrop.querySelector<HTMLElement>('[data-cirava-photos-album-share-note]');
+  if (photosAlbumChoice) photosAlbumChoice.checked = Boolean(state.photosAlbumEnabled);
+  if (photosAlbumName) photosAlbumName.value = state.photosAlbumTitle || '';
   const close = () => { ciravaDirectUploadState = state; backdrop.remove(); };
   backdrop.querySelector<HTMLButtonElement>('[data-cirava-upload-close]')!.addEventListener('click', close);
   backdrop.addEventListener('click', (event) => { if (event.target === backdrop) close(); });
+
+  const photosAlbumTitle = () => photosAlbumChoice?.checked ? photosAlbumName?.value.trim() || '' : null;
+  const syncPhotoAlbumDestination = () => {
+    if (!isPhotosUpload) return;
+    const albumEnabled = Boolean(photosAlbumChoice?.checked);
+    const title = photosAlbumTitle();
+    state.photosAlbumEnabled = albumEnabled;
+    state.photosAlbumTitle = photosAlbumName?.value || '';
+    if (photosAlbumField) photosAlbumField.hidden = !albumEnabled;
+    if (photosAlbumShareNote) photosAlbumShareNote.hidden = !albumEnabled;
+    const destinationTitle = backdrop.querySelector<HTMLElement>('.photos-upload-destination-card .cirava-upload-destination-copy strong');
+    const destinationDetail = backdrop.querySelector<HTMLElement>('.photos-upload-destination-card .cirava-upload-destination-copy span');
+    if (destinationTitle) destinationTitle.textContent = albumEnabled ? title || 'New Google Photos album' : 'Google Photos library';
+    if (destinationDetail) destinationDetail.textContent = albumEnabled ? 'New album · share it later in Google Photos' : 'Original quality · resumable transfer';
+    if (!state.paths.length) return;
+    const canSubmit = Boolean(getApi()?.create_google_photos_upload_batch && (!albumEnabled || title));
+    start.disabled = queueUpload.disabled = !canSubmit;
+    setStartLabel(albumEnabled ? 'Upload to album' : 'Upload to Google Photos');
+  };
+  photosAlbumChoice?.addEventListener('change', syncPhotoAlbumDestination);
+  photosAlbumName?.addEventListener('input', syncPhotoAlbumDestination);
 
   const renderSelection = () => {
     const view = getUploadSelectionView(state.paths, state.summary, state.testUpload);
@@ -752,8 +808,9 @@ function ciravaOpenDirectUploadPlanner() {
     renderSelection();
     refreshArchiveControls();
     setStartLabel('Start upload');
-    start.disabled = !state.paths.length || !getApi()?.create_upload_batch;
+    start.disabled = !state.paths.length || (isPhotosUpload ? !getApi()?.create_google_photos_upload_batch : !getApi()?.create_upload_batch);
     queueUpload.disabled = start.disabled;
+    if (isPhotosUpload) syncPhotoAlbumDestination();
   };
   const choose = async (kind: 'files' | 'folder') => {
     const api = getApi();
@@ -765,7 +822,7 @@ function ciravaOpenDirectUploadPlanner() {
       if (!paths?.length) { status.textContent = 'Nothing selected.'; return; }
       const summary = typeof api.summarize_local_paths === 'function' ? await api.summarize_local_paths(paths) : undefined;
       updateSelection(paths, summary);
-      status.textContent = 'Selection ready. Choose a Drive folder, then start the upload.';
+      status.textContent = isPhotosUpload ? 'Photos selection ready. Google Photos is the destination.' : 'Selection ready. Choose a Drive folder, then start the upload.';
     } catch (error) { status.textContent = error instanceof Error ? error.message : 'Could not open the local picker.'; }
   };
   backdrop.querySelector<HTMLButtonElement>('[data-cirava-upload-files]')!.addEventListener('click', () => void choose('files'));
@@ -789,17 +846,36 @@ function ciravaOpenDirectUploadPlanner() {
     if (!api?.list_drive_files) { status.textContent = 'Connect Google Drive in the desktop app to choose a destination.'; return; }
     folders.hidden = false; folders.innerHTML = '<span class="cirava-upload-folder-loading">Loading Drive folders…</span>';
     try {
-      const result = await api.list_drive_files(parentId);
+      const result = state.destinationDriveId && api.list_shared_drive_files
+        ? await api.list_shared_drive_files(parentId, state.destinationDriveId)
+        : await (api.list_my_drive_files || api.list_drive_files)(parentId);
       const items = (result?.files || []).filter((item: any) => item.mimeType === 'application/vnd.google-apps.folder');
-      folders.innerHTML = renderDriveFolderPicker({ parentId, currentLabel: parentId === 'root' ? 'My Drive / Workspace' : state.destinationName, folders: items });
-      folders.querySelector('[data-cirava-use-folder]')?.addEventListener('click', () => { state.destinationId = parentId; state.destinationName = parentId === 'root' ? 'My Drive / Workspace' : state.destinationName; destinationName.textContent = state.destinationName; folders.hidden = true; status.textContent = 'Destination selected.'; });
+      const rootId = state.destinationDriveId || 'root';
+      folders.innerHTML = renderDriveFolderPicker({ parentId, currentLabel: parentId === rootId ? state.destinationRootName || 'My Drive / Workspace' : state.destinationName, folders: items });
+      if (parentId !== rootId) {
+        const back = document.createElement('button');
+        back.type = 'button';
+        back.className = 'cirava-upload-folder-option planner-folder-back';
+        back.textContent = state.destinationDriveId ? '‹ Back to shared drive' : '‹ Back to My Drive';
+        back.addEventListener('click', () => { state.destinationId = rootId; state.destinationName = state.destinationRootName || 'My Drive / Workspace'; destinationName.textContent = state.destinationName; void loadFolders(rootId); });
+        folders.prepend(back);
+      }
+       folders.querySelector('[data-cirava-use-folder]')?.addEventListener('click', () => { state.destinationId = parentId; state.destinationName = parentId === rootId ? state.destinationRootName || 'My Drive / Workspace' : state.destinationName; destinationName.textContent = state.destinationName; folders.hidden = true; status.textContent = 'Destination selected.'; });
       folders.querySelectorAll<HTMLButtonElement>('[data-cirava-folder-id]').forEach((button) => button.addEventListener('click', () => { state.destinationId = button.dataset.ciravaFolderId || 'root'; state.destinationName = button.dataset.ciravaFolderName || 'Drive folder'; destinationName.textContent = state.destinationName; void loadFolders(state.destinationId); }));
     } catch (error) { folders.innerHTML = '<span class="cirava-upload-folder-loading">Drive folders could not be loaded.</span>'; status.textContent = error instanceof Error ? error.message : 'Could not list Drive folders.'; }
   };
-  backdrop.querySelector<HTMLButtonElement>('[data-cirava-upload-destination]')!.addEventListener('click', () => void loadFolders(state.destinationId));
+  if (!isPhotosUpload) installSharedDriveControls(backdrop.querySelector('.cirava-upload-destination-step')!, getApi, ({ driveId, parentId, name }) => {
+    state.destinationDriveId = driveId;
+    state.destinationId = parentId;
+    state.destinationName = state.destinationRootName = name;
+    destinationName.textContent = name;
+    void loadFolders(parentId);
+  }, (message) => { status.textContent = message; });
+  backdrop.querySelector<HTMLButtonElement>('[data-cirava-upload-destination]')?.addEventListener('click', () => void loadFolders(state.destinationId));
   start.addEventListener('click', async () => {
     const api = getApi();
-    if ((!state.paths.length && !state.testUpload) || (!api?.create_upload_batch && !state.testUpload)) return;
+    if ((!state.paths.length && !state.testUpload) || (isPhotosUpload ? !api?.create_google_photos_upload_batch : !api?.create_upload_batch) && !state.testUpload) return;
+    if (isPhotosUpload && photosAlbumChoice?.checked && !photosAlbumTitle()) { status.textContent = 'Enter a name for the new Google Photos album.'; photosAlbumName?.focus(); return; }
     if (compressChoice.checked && !archiveFlow.getPrepared(state.paths)) { status.textContent = 'Preview and compress the selected items before starting this upload.'; return; }
     start.disabled = true;
     start.setAttribute('aria-busy', 'true');
@@ -807,7 +883,9 @@ function ciravaOpenDirectUploadPlanner() {
     setStartLabel('Preparing…');
     try {
       await startUploadWithFeedback({
-        createBatch: () => createUploadBatch({ api, paths: compressChoice.checked ? archiveFlow.uploadPaths(state.paths) : state.paths, destinationId: state.destinationId, testUpload: state.testUpload }),
+         createBatch: () => isPhotosUpload
+           ? createGooglePhotosUploadBatch({ api, paths: state.paths, startImmediately: true, albumTitle: photosAlbumTitle() })
+           : createUploadBatch({ api, paths: compressChoice.checked ? archiveFlow.uploadPaths(state.paths) : state.paths, destinationId: state.destinationId, destinationDriveId: state.destinationDriveId, testUpload: state.testUpload }),
         navigate: () => {
           const opened = ciravaNavigateToTransfers();
           if (opened) close();
@@ -819,18 +897,21 @@ function ciravaOpenDirectUploadPlanner() {
       start.disabled = false;
       start.removeAttribute('aria-busy');
       delete backdrop.dataset.uploading;
-      setStartLabel(state.testUpload ? 'Start test upload' : 'Start upload');
+      setStartLabel(state.testUpload ? 'Start test upload' : isPhotosUpload ? photosAlbumChoice?.checked ? 'Upload to album' : 'Upload to Google Photos' : 'Start upload');
       status.textContent = error instanceof Error ? error.message : 'Could not queue this upload.';
     }
   });
   queueUpload.addEventListener('click', async () => {
     const api = getApi();
-    if ((!state.paths.length && !state.testUpload) || (!api?.create_upload_batch && !state.testUpload)) return;
+    if ((!state.paths.length && !state.testUpload) || (isPhotosUpload ? !api?.create_google_photos_upload_batch : !api?.create_upload_batch) && !state.testUpload) return;
+    if (isPhotosUpload && photosAlbumChoice?.checked && !photosAlbumTitle()) { status.textContent = 'Enter a name for the new Google Photos album.'; photosAlbumName?.focus(); return; }
     if (compressChoice.checked && !archiveFlow.getPrepared(state.paths)) { status.textContent = 'Preview and compress these files before adding them to the queue.'; return; }
     queueUpload.disabled = true;
     status.textContent = 'Adding uploads to the waiting queue…';
     try {
-      const records = await createUploadBatch({ api, paths: compressChoice.checked ? archiveFlow.uploadPaths(state.paths) : state.paths, destinationId: state.destinationId, testUpload: state.testUpload, startImmediately: false });
+       const records = isPhotosUpload
+         ? await createGooglePhotosUploadBatch({ api, paths: state.paths, startImmediately: false, albumTitle: photosAlbumTitle() })
+         : await createUploadBatch({ api, paths: compressChoice.checked ? archiveFlow.uploadPaths(state.paths) : state.paths, destinationId: state.destinationId, destinationDriveId: state.destinationDriveId, testUpload: state.testUpload, startImmediately: false });
       if (!Array.isArray(records) || !records.length) throw new Error('No upload items were added to the queue.');
       ciravaNavigateToTransfers();
       close();
@@ -841,11 +922,20 @@ function ciravaOpenDirectUploadPlanner() {
   });
   bindHoldToConfirm(start, { label: 'upload' });
   renderSelection();
-  setStartLabel(state.testUpload ? 'Start test upload' : 'Start upload');
-  start.disabled = state.testUpload ? !getApi()?.create_test_upload : !state.paths.length || !getApi()?.create_upload_batch;
-  destinationName.textContent = state.destinationName;
+  setStartLabel(state.testUpload ? 'Start test upload' : isPhotosUpload ? 'Upload to Google Photos' : 'Start upload');
+  start.disabled = isPhotosUpload ? !state.paths.length || !getApi()?.create_google_photos_upload_batch : state.testUpload ? !getApi()?.create_test_upload : !state.paths.length || !getApi()?.create_upload_batch;
+  queueUpload.disabled = start.disabled;
+  syncPhotoAlbumDestination();
+  if (destinationName) destinationName.textContent = state.destinationName;
+  if (isPhotosUpload && !state.paths.length) status.textContent = 'Choose photos or videos from this device to continue.';
   sheet.focus();
 }
+
+window.addEventListener('cirava:open-upload-planner', (event) => {
+  const detail = (event as CustomEvent<{ target?: string; paths?: string[] }>).detail;
+  const target = detail?.target === 'photos' ? 'photos' : 'drive';
+  ciravaOpenDirectUploadPlanner(target, detail?.paths || []);
+});
 
 function ciravaInstallDirectUploadEntrypoints() {
   document.querySelectorAll<HTMLElement>('.upload-intent, .plus-control, [data-transfer-action="upload"], .heading-actions button, .page-heading .page-actions button, .drive-empty button').forEach((target) => {
@@ -1377,7 +1467,7 @@ requestAnimationFrame(ciravaHomeOrbit);
 /* Keep release labels and About details aligned with the channel embedded at build time. */
 function ciravaSyncCandidateVersion() {
   const env = (import.meta as any).env || {};
-  const version = env.VITE_CIRAVA_APP_VERSION || env.VITE_CIRAVA_VERSION || '1.2.5';
+  const version = env.VITE_CIRAVA_APP_VERSION || env.VITE_CIRAVA_VERSION || '1.3.0';
   const presentation = getReleasePresentation(version, env.VITE_CIRAVA_APP_CHANNEL);
   document.querySelectorAll<HTMLElement>('.about-fact').forEach((fact) => {
     if (fact.querySelector('span')?.textContent?.trim() === 'Version') {
@@ -1403,7 +1493,7 @@ function ciravaUpdateScreen() {
   document.documentElement.dataset.ciravaUpdateBound = 'true';
   const env = (import.meta as any).env || {};
   const manifestUrls = getUpdateFeeds(env);
-  const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.2.5';
+  const currentVersion = env.VITE_CIRAVA_APP_VERSION || '1.3.0';
   const initialChannel = env.VITE_CIRAVA_APP_CHANNEL === 'beta' ? 'beta' : 'release';
   const channelMenuState = createUpdateChannelMenuState(initialChannel);
   let selectedChannel = channelMenuState.selected;
@@ -1580,7 +1670,7 @@ function ciravaInstallRigidLiquidSelector() {
   const fallback = [['#8b6af2', '#d889f1'], ['#4ca8e8', '#5ec8d4'], ['#6d84e9', '#67c6bd'], ['#e27a9a', '#f0ad72'], ['#55b7bd', '#758be8'], ['#4c83ed', '#61c9ba'], ['#e08a63', '#d86c9b'], ['#818bdc', '#62c8c3']];
   let pointerId: number | null = null;
   let active: HTMLElement | null = null;
-  let skipClick = false;
+  let skipClickTarget: HTMLElement | null = null;
   let programmaticClick = false;
   let lastCenter = 0;
   const items = () => Array.from(sidebar.querySelectorAll<HTMLElement>('.nav-item'));
@@ -1653,7 +1743,16 @@ function ciravaInstallRigidLiquidSelector() {
     pointerId = null; sidebar.classList.remove('nav-dragging');
     try { sidebar.releasePointerCapture(event.pointerId); } catch {}
     snap(row);
-    if (row) { skipClick = true; programmaticClick = true; row.click(); }
+    if (row) {
+      // The explicit click selects the row after pointer capture. If the
+      // browser also emits its pointer-generated click, suppress only that
+      // same row and clear the guard immediately; a stale boolean here eats
+      // the user's next navigation click and leaves the liquid selector stuck.
+      skipClickTarget = row;
+      programmaticClick = true;
+      row.click();
+      window.setTimeout(() => { if (skipClickTarget === row) skipClickTarget = null; }, 120);
+    }
     active = null;
   }, true);
   sidebar.addEventListener('pointercancel', (event) => {
@@ -1664,7 +1763,11 @@ function ciravaInstallRigidLiquidSelector() {
     const row = (event.target as HTMLElement).closest<HTMLElement>('.nav-item');
     if (!row) return;
     if (programmaticClick) { programmaticClick = false; return; }
-    if (skipClick) { skipClick = false; event.preventDefault(); event.stopImmediatePropagation(); return; }
+    if (skipClickTarget) {
+      const generatedClick = row === skipClickTarget;
+      skipClickTarget = null;
+      if (generatedClick) { event.preventDefault(); event.stopImmediatePropagation(); return; }
+    }
     const rect = row.getBoundingClientRect();
     const bounds = sidebar.getBoundingClientRect();
     snap(row); paint(rect.top + rect.height / 2 - bounds.top);
@@ -1814,8 +1917,11 @@ const ciravaEnhancementObserver = new MutationObserver(() => {
     ciravaSyncCandidateVersion();
     ciravaUpdateScreen();
     ciravaInstallRigidLiquidSelector();
+    installGooglePhotosPage();
   });
 });
 ciravaEnhancementObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+installGooglePhotosPage();
+requestAnimationFrame(installGooglePhotosPage);
 requestAnimationFrame(installDriveTrash);
 installDriveCreateDialog();
